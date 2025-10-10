@@ -1,0 +1,11 @@
+[package]
+name = "ods2cascade"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+atoi      = "2.0.0"
+cascade   = { git = "http://github.com/NLnetLabs/cascade", rev = "v0.1.0-alpha", version = "0.1.0-alpha" }
+domain    = { git = "https://github.com/NLnetLabs/domain", branch = "patches-for-nameshed-prototype" }
+quick-xml = { version = "0.38.3", features = ["serialize"] }
+serde     = { version = "1.0.228", features = ["derive"] }
