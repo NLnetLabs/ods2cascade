@@ -80,13 +80,12 @@ async fn main() -> anyhow::Result<()> {
     let o_kasps: KASP = process_xml(&xml).unwrap();
     dbg_to_file(&o_kasps, "ods_kasp", &dbg_dir);
 
-    println!("Loading {}...", o_conf.common.zone_list_file);
-    let xml = std::fs::read_to_string(&o_conf.common.zone_list_file).unwrap();
+    let o_zones_path = PathBuf::from_str(&o_conf.enforcer.working_directory).unwrap();
+    let o_zones_path = o_zones_path.join("zones.xml");
+    println!("Loading {}...", o_zones_path.display());
+    let xml = std::fs::read_to_string(&o_zones_path).unwrap();
     let o_zone_list: ZoneList = process_xml(&xml).unwrap();
     dbg_to_file(&o_zone_list, "ods_zone_list", &dbg_dir);
-
-    // Cascade policy name -> (ODS policy name, ODS addns path)
-    // let mut o_pol_name_plus_addns_path_by_c_pol_name = BTreeMap::<String, (String, String)>::new();
 
     // (ODS policy name, ODS addns path) -> Cascade policy name
     let mut c_pol_name_by_o_pol_name_plus_addns_path =
@@ -98,14 +97,11 @@ async fn main() -> anyhow::Result<()> {
     // ODS zone name -> ODS addns path
     let mut o_addns_path_by_o_zone_name = BTreeMap::<String, String>::new();
 
-    // ODS policy name -> [Cascade policy names]
-    // let mut c_pol_names_by_o_pol_name = BTreeMap::<String, Vec<String>>::new();
-
-    // ODS zone name -> Cascade policy name
-    // let mut c_pol_name_by_o_zone = BTreeMap::<String, String>::new();
-
     // Cascade policy name -> Cascade policy
     let mut c_pol_by_c_pol_name = BTreeMap::<String, Spec>::new();
+
+    // ODS zone name -> ODS signed zone output path
+    let mut o_signed_zone_output_paths_by_zone_name = BTreeMap::<String, String>::new();
 
     // So for each combination of ODS policy and zone output adapter we need
     // a different Cascade policy.
@@ -124,23 +120,38 @@ async fn main() -> anyhow::Result<()> {
     // Cascade policy name.
     // If there *is* an output addns.xml path, use the ODS policy name plus
     // a hash of the addns.xml path as the Cascade policy name.
-    for o_zone_name in &o_zone_list.zones {
+    for o_zone in &o_zone_list.zones {
         // TODO: Process the input adapter.
 
         // Process the output adapter, loading any addns.xml file referred
         // to and returning its path if one were specified.
         process_adapter(
-            &o_zone_name.adapters.output.adapter,
+            &o_zone.adapters.output.adapter,
             &mut o_adapter_by_addns_path,
         )
         .unwrap()
         .and_then(|o_addns_path| {
+            // This zone has an ODS output adapter of type DNS with zone
+            // transfer settings defined via an addns.xml file. Confusingly
+            // the ODS addns.rnc XML schema file defines that the Outbound
+            // element is optional, but if not specified ODS will refuse XFR
+            // requests for the zone, but also won't have written the signed
+            // zone to a file, presumably making it useless to sign the zone.
+            if o_adapter_by_addns_path
+                .get(&o_addns_path)
+                .map(|adapter| &adapter.dns.outbound)
+                .is_none()
+            {
+                eprintln!("Zone '{}' will be ignored as it has output adapter type DNS but lacks an Outboun configuration and thus will never be written to disk or served via XFR.", o_zone.name);
+                return None;
+            }
+
             // Remember the mapping of zone name to output addns path.
-            o_addns_path_by_o_zone_name.insert(o_zone_name.name.clone(), o_addns_path.clone());
+            o_addns_path_by_o_zone_name.insert(o_zone.name.clone(), o_addns_path.clone());
 
             // This zone uses a DNS output adapter. Generate a hashed policy
             // name for Cascade.
-            let o_pol_name = o_zone_name.policy.clone();
+            let o_pol_name = o_zone.policy.clone();
             let mut hasher = std::hash::DefaultHasher::new();
             o_addns_path.hash(&mut hasher);
             let hash = hasher.finish().to_string();
@@ -151,14 +162,14 @@ async fn main() -> anyhow::Result<()> {
             let key = (o_pol_name, Some(o_addns_path));
 
             c_pol_name_by_o_pol_name_plus_addns_path.insert(key, c_pol_name) //.clone())
-            // c_pol_name_by_o_zone.insert(o_zone_name.name.clone(), c_pol_name)
         })
         .or_else(|| {
+            // This zone was NOT configured in ODS with zone transfer settings
+            // and so it must be a
             // Remember the Cascade policy name for this ODS policy name.
-            let o_pol_name = o_zone_name.policy.clone();
+            let o_pol_name = o_zone.policy.clone();
             let key = (o_pol_name.clone(), None);
             c_pol_name_by_o_pol_name_plus_addns_path.insert(key, o_pol_name)
-            // c_pol_name_by_o_zone.insert(o_zone_name.name.clone(), o_zone_name.policy.clone())
         });
     }
 
@@ -199,9 +210,12 @@ async fn main() -> anyhow::Result<()> {
     // Generate Cascade policies based on ODS policy and optional addns.xml
     // output adapter.
     for ((o_pol_name, addns_path), c_pol_name) in &c_pol_name_by_o_pol_name_plus_addns_path {
-        println!(
-            "Create Cascade policy '{c_pol_name}' from ODS KASP '{o_pol_name}' and ADDNS '{addns_path:?}'."
-        );
+        print!("Creating Cascade policy '{c_pol_name}' from ODS KASP '{o_pol_name}'");
+        if let Some(addns_path) = &addns_path {
+            print!(" and ODS ADDNS '{addns_path}'");
+        }
+        println!(".");
+
         let kasp = o_kasps
             .policies
             .iter()
@@ -220,6 +234,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // Output `cascade` commands for the user to run.
+    println!("Generating '{output_dir_path}/commands.sh'...");
     let cmd_file_path = format!("{output_dir_path}/commands.sh");
     let mut cmd_file =
         std::fs::File::create(cmd_file_path).expect("Should be able to write the command file");
@@ -228,7 +243,8 @@ async fn main() -> anyhow::Result<()> {
         writeln!(
             cmd_file,
             "cp {output_dir_path}/policies/{c_pol_name}.toml {c_pol_dir}/"
-        );
+        )
+        .unwrap();
     }
     writeln!(cmd_file, "cascade policy reload").unwrap();
 
@@ -239,11 +255,6 @@ async fn main() -> anyhow::Result<()> {
         else {
             unreachable!()
         };
-
-        println!(
-            "New zone '{}' will use Cascade policy '{c_pol_name}'.",
-            zone.name
-        );
 
         let mut source = zone.adapters.input.adapter.path.clone();
         if let Some(o_adapter) = o_adapter_by_addns_path.get(&zone.adapters.input.adapter.path) {
@@ -269,6 +280,34 @@ async fn main() -> anyhow::Result<()> {
         cmd_file.flush().unwrap();
     }
     drop(cmd_file);
+
+    println!();
+    println!("Preparations complete.");
+    println!();
+    println!("Next steps:");
+    println!("  - Stop OpenDNSSEC: ods-control stop");
+    if let Some(ref pub_interfaces) = o_conf
+        .signer
+        .map(|s| s.listener.interfaces)
+        .and_then(|i| (!i.is_empty()).then_some(i))
+    {
+        println!("  - Configure Cascade to publish on the same interfaces");
+        println!("    as the OpenDNSSEC Signer by setting [server].servers");
+        println!("    in {c_conf_toml_path} to:");
+        println!();
+        let servers = pub_interfaces
+            .iter()
+            .map(|i| format!("{}:{}", i.address, i.port))
+            .collect::<Vec<String>>()
+            .join(",");
+        print!("      servers = [{servers}]");
+    } else {
+        // OpenDNSSEC was not configured to serve XFR. It must therefore have
+        // been writing signed zones to files on disk.
+
+        println!("  - Alter ")
+    }
+    println!("  - (optional) Configure Cascade to publish on the same ");
 
     Ok(())
 }
@@ -419,10 +458,10 @@ fn create_cascade_policy(
         },
         signer: SignerPolicy {
             serial_policy: match kasp.zone.soa.serial.serial {
-                kasp::SerialEnum::counter => SignerSerialPolicy::Counter,
-                kasp::SerialEnum::datecounter => SignerSerialPolicy::DateCounter,
-                kasp::SerialEnum::unixtime => SignerSerialPolicy::UnixTime,
-                kasp::SerialEnum::keep => SignerSerialPolicy::Keep,
+                SerialEnum::counter => SignerSerialPolicy::Counter,
+                SerialEnum::datecounter => SignerSerialPolicy::DateCounter,
+                SerialEnum::unixtime => SignerSerialPolicy::UnixTime,
+                SerialEnum::keep => SignerSerialPolicy::Keep,
             },
             sig_inception_offset: Duration::from_secs(0), // TODO
             sig_validity_time: Duration::from_secs(0),    // TODO
