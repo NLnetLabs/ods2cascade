@@ -1,36 +1,26 @@
-mod addns;
-mod conf;
-mod kasp;
-mod zonelist;
+mod schema;
 
 use std::{
-    collections::BTreeMap,
-    fs::create_dir,
-    hash::{Hash, Hasher},
-    io::{ErrorKind, Write},
-    net::{IpAddr, SocketAddr},
-    str::FromStr,
-    time::Duration,
+    collections::BTreeMap, fs::create_dir, hash::{Hash, Hasher}, io::{ErrorKind, Write}, net::{IpAddr, SocketAddr}, path::PathBuf, str::FromStr, time::Duration
 };
 
-use addns::Adapter;
 use cascade::policy::{
     AutoConfig, DsAlgorithm, NameserverCommsPolicy, OutboundPolicy, Policy, ReviewPolicy,
     ServerPolicy, SignerDenialPolicy, SignerPolicy, SignerSerialPolicy, file::Spec,
 };
-use conf::Configuration;
 use domain::base::Ttl;
-use kasp::KASP;
 use quick_xml::DeError;
+use schema::xml::addns::{Adapter, Outbound};
+use schema::xml::conf::Configuration;
+use schema::xml::kasp::{Csk, KASP, Ksk, Zsk};
+use schema::xml::zone_list::ZoneList;
 use serde::Deserialize;
-use zonelist::ZoneList;
+use sqlx::{Connection, SqliteConnection};
 
-use crate::{
-    addns::Outbound,
-    kasp::{Csk, Ksk, Zsk},
-};
+use crate::schema::xml::kasp::SerialEnum;
 
-fn main() {
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
     let mut args = std::env::args();
     let prog_name = args.next().unwrap();
 
@@ -40,6 +30,23 @@ fn main() {
         );
         std::process::exit(1);
     }
+
+    // TESTING
+    // let mut conn = SqliteConnection::connect(&std::env::var("DATABASE_URL")?).await?;
+    // let zones = sqlx::query_as::<_, schema::db::zone::Zone>("SELECT * FROM zone")
+    //     .fetch_all(&mut conn)
+    //     .await?;
+    // dbg!(zones);
+
+    // let policies = sqlx::query_as::<_, schema::db::policy::Policy>("SELECT * FROM policy")
+    //     .fetch_all(&mut conn)
+    //     .await?;
+    // dbg!(policies);
+
+    // let policy_keys = sqlx::query_as::<_, schema::db::policy::Key>("SELECT * FROM policyKey")
+    //     .fetch_all(&mut conn)
+    //     .await?;
+    // dbg!(policy_keys);
 
     // TODO: Load Cascade config TOML file and use it to determine the policy
     // directory to copy policy files to, and the --server argument to use to
@@ -262,6 +269,8 @@ fn main() {
         cmd_file.flush().unwrap();
     }
     drop(cmd_file);
+
+    Ok(())
 }
 
 fn dbg_to_file<T: std::fmt::Debug>(v: T, name: &str, dbg_dir: &str) {
@@ -293,7 +302,7 @@ fn mk_nice_io_err<T>(res: std::io::Result<T>, op: String) -> T {
 }
 
 fn process_adapter(
-    adapter: &zonelist::Adapter,
+    adapter: &crate::schema::xml::zone_list::Adapter,
     addns_paths_to_adapters: &mut BTreeMap<String, Adapter>,
 ) -> Result<Option<String>, DeError> {
     match adapter._type.as_str() {
@@ -321,7 +330,7 @@ fn process_xml<'de, T: Deserialize<'de>>(xml: &'de str) -> Result<T, DeError> {
 }
 
 fn create_cascade_policy(
-    kasp: &kasp::Policy,
+    kasp: &crate::schema::xml::kasp::Policy,
     output: Option<&Outbound>,
     hsm_server_id: String,
 ) -> Spec {
