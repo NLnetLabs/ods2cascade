@@ -186,7 +186,7 @@ pub mod conf {
     }
 
     #[derive(Debug, Deserialize)]
-    enum DatastoreEnum {
+    pub enum DatastoreEnum {
         #[serde(rename = "MySQL")]
         mysql(Mysql),
         #[serde(rename = "SQLite")]

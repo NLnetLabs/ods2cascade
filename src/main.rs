@@ -1,7 +1,15 @@
 mod schema;
 
 use std::{
-    collections::BTreeMap, fs::create_dir, hash::{Hash, Hasher}, io::{ErrorKind, Write}, net::{IpAddr, SocketAddr}, path::PathBuf, str::FromStr, time::Duration
+    collections::BTreeMap,
+    fs::create_dir,
+    hash::{Hash, Hasher},
+    io::{ErrorKind, Write},
+    net::{IpAddr, SocketAddr},
+    path::PathBuf,
+    pin::Pin,
+    str::FromStr,
+    time::Duration,
 };
 
 use cascade::policy::{
@@ -15,9 +23,12 @@ use schema::xml::conf::Configuration;
 use schema::xml::kasp::{Csk, KASP, Ksk, Zsk};
 use schema::xml::zone_list::ZoneList;
 use serde::Deserialize;
-use sqlx::{Connection, SqliteConnection};
+use sqlx::{AnyConnection, Connection, MySqlConnection, SqliteConnection};
 
-use crate::schema::xml::kasp::SerialEnum;
+use crate::schema::xml::{
+    conf::{DatastoreEnum, Host, Mysql},
+    kasp::SerialEnum,
+};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -30,28 +41,6 @@ async fn main() -> anyhow::Result<()> {
         );
         std::process::exit(1);
     }
-
-    // TESTING
-    // let mut conn = SqliteConnection::connect(&std::env::var("DATABASE_URL")?).await?;
-    // let zones = sqlx::query_as::<_, schema::db::zone::Zone>("SELECT * FROM zone")
-    //     .fetch_all(&mut conn)
-    //     .await?;
-    // dbg!(zones);
-
-    // let policies = sqlx::query_as::<_, schema::db::policy::Policy>("SELECT * FROM policy")
-    //     .fetch_all(&mut conn)
-    //     .await?;
-    // dbg!(policies);
-
-    // let policy_keys = sqlx::query_as::<_, schema::db::policy::Key>("SELECT * FROM policyKey")
-    //     .fetch_all(&mut conn)
-    //     .await?;
-    // dbg!(policy_keys);
-
-    // TODO: Load Cascade config TOML file and use it to determine the policy
-    // directory to copy policy files to, and the --server argument to use to
-    // cascade commands to connect to the correct Cascade instances remote
-    // management interface.
 
     let c_conf_toml_path = args.next().unwrap();
     let o_conf_xml_path = args.next().unwrap();
@@ -86,6 +75,26 @@ async fn main() -> anyhow::Result<()> {
     let xml = std::fs::read_to_string(&o_zones_path).unwrap();
     let o_zone_list: ZoneList = process_xml(&xml).unwrap();
     dbg_to_file(&o_zone_list, "ods_zone_list", &dbg_dir);
+
+    // Verify that we can connect to the Enforcer database.
+    let mut conn = DbConn::new(&o_conf.enforcer.datastore.datastore).await?;
+    let db_version = conn.db_version().await?;
+    println!("Enforcer database version: {}", db_version.version);
+    // TESTING
+    // let zones = sqlx::query_as::<_, schema::db::zone::Zone>("SELECT * FROM zone")
+    //     .fetch_all(&mut conn)
+    //     .await?;
+    // dbg!(zones);
+
+    // let policies = sqlx::query_as::<_, schema::db::policy::Policy>("SELECT * FROM policy")
+    //     .fetch_all(&mut conn)
+    //     .await?;
+    // dbg!(policies);
+
+    // let policy_keys = sqlx::query_as::<_, schema::db::policy::Key>("SELECT * FROM policyKey")
+    //     .fetch_all(&mut conn)
+    //     .await?;
+    // dbg!(policy_keys);
 
     // (ODS policy name, ODS addns path) -> Cascade policy name
     let mut c_pol_name_by_o_pol_name_plus_addns_path =
@@ -627,4 +636,54 @@ enum Key<'a> {
     Ksk(&'a Ksk),
     Zsk(&'a Zsk),
     Csk(&'a Csk),
+}
+
+enum DbConn {
+    MySQL(sqlx::MySqlConnection),
+    SQLite(sqlx::SqliteConnection),
+}
+
+impl DbConn {
+    async fn new(datastore: &DatastoreEnum) -> Result<DbConn, sqlx::Error> {
+        match datastore {
+            DatastoreEnum::mysql(Mysql {
+                host,
+                database,
+                username,
+                password,
+            }) => {
+                let (host, port) = match host {
+                    Some(Host { address, port }) => (address.as_str(), *port),
+                    None => ("127.0.0.1", 3306),
+                };
+                let url = format!("mysql://{username}:{password}@{host}:{port}/{database}");
+                println!("Connecting to MySQL Enforcer database at {url}...");
+                MySqlConnection::connect(&url)
+                    .await
+                    .map(|c| DbConn::MySQL(c))
+            }
+            DatastoreEnum::sqlite(db) => {
+                let url = format!("sqlite://{}", db.0);
+                println!("Connecting to SQLite Enforcer database at {url}...");
+                SqliteConnection::connect(&url)
+                    .await
+                    .map(|c| DbConn::SQLite(c))
+            }
+        }
+    }
+
+    async fn db_version(&mut self) -> Result<schema::db::DatabaseVersion, sqlx::Error> {
+        match self {
+            DbConn::MySQL(c) => {
+                sqlx::query_as("SELECT * FROM databaseVersion")
+                    .fetch_one(c)
+                    .await
+            }
+            DbConn::SQLite(c) => {
+                sqlx::query_as("SELECT * FROM databaseVersion")
+                    .fetch_one(c)
+                    .await
+            }
+        }
+    }
 }

@@ -15,10 +15,6 @@ pub mod zone {
 }
 
 pub mod policy {
-    use std::u32;
-
-    use domain::dep::kmip::types::request::MACOrSignatureKeyInformation;
-
     #[derive(Debug, sqlx::FromRow)]
     #[sqlx(rename_all = "camelCase")]
     pub struct Policy {
@@ -159,4 +155,12 @@ pub mod policy {
         pub rfc5011: bool,
         pub minimize: u32, // relates to Ksk/Zsk/CskRollType in KASP.xml
     }
+}
+
+#[derive(Debug, sqlx::FromRow)]
+#[sqlx(rename_all = "camelCase")]
+pub struct DatabaseVersion {
+    pub id: u64,
+    pub rev: u32,
+    pub version: u32,
 }
