@@ -39,9 +39,9 @@ Progress:
 
 `ods2cascade` requires three filesystem paths as input:
 
-1. The path to the config file of your new Cascade instance. This is used to determine the Cascade policy directory.
-2. The path to the config file of the OpenDNSSEC instance to migrate.
-3. The path to a directory to create that will contain generated policy files and a migration shell script.
+1. The path to the config file of your new Cascade instance.
+3. The path to the config file of the OpenDNSSEC instance to migrate.
+4. The path to a directory to create that will contain generated policy files and a migration shell script.
 
 When invoked `ods2cascade` will:
   - Read the specified Cascade configuration file.
