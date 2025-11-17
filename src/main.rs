@@ -638,6 +638,21 @@ enum Key<'a> {
     Csk(&'a Csk),
 }
 
+/// A wrapper around the sqlx MySQL and SQLite database drivers.
+/// 
+/// This wrapper exists because the sqlx `connect()` fn returns different
+/// concrete types for different database drivers so making a database query
+/// requires type specific code.
+///
+/// The sqlx crate also offers `AnyConnection` to abstract over the database
+/// in use but that doesn't support u64 and u32 field types which we use in
+/// many places to model the OpenDNSSEC database fields so we can't use that
+/// either.
+///
+/// Perhaps a Box<dyn Connection> approach might be possible, but it was
+/// quicker and simnpler to use an enum based wrapper approach plus we don't
+/// need to support arbitrary database drivers so dyn is overkill, an enum
+/// over the concrete drivers that we know we need to support is enough.
 enum DbConn {
     MySQL(sqlx::MySqlConnection),
     SQLite(sqlx::SqliteConnection),
