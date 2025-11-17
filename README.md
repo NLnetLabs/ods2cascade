@@ -30,7 +30,7 @@ Progress:
     - [ ] Instruct Cascade to add HSMs.
     - [ ] Instruct Cascade to add zones
       - [x] Using the correct policy.
-      - [ ] Using the correct HSM.
+      - [x] Using the correct HSM.
       - [ ] Using the correct keys.
 
 # Usage
