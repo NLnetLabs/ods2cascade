@@ -7,7 +7,6 @@ use std::{
     io::{ErrorKind, Write},
     net::{IpAddr, SocketAddr},
     path::PathBuf,
-    pin::Pin,
     str::FromStr,
     time::Duration,
 };
@@ -23,7 +22,7 @@ use schema::xml::conf::Configuration;
 use schema::xml::kasp::{Csk, KASP, Ksk, Zsk};
 use schema::xml::zone_list::ZoneList;
 use serde::Deserialize;
-use sqlx::{AnyConnection, Connection, MySqlConnection, SqliteConnection};
+use sqlx::{Connection, MySqlConnection, SqliteConnection};
 
 use crate::schema::xml::{
     conf::{DatastoreEnum, Host, Mysql},
@@ -173,21 +172,11 @@ async fn main() -> anyhow::Result<()> {
         "o2c_zone_name_to_addns_path",
         &dbg_dir,
     );
-    // dbg_to_file(
-    //     &c_pol_name_by_o_zone,
-    //     "o2c_zone_name_to_cascade_policy_name",
-    //     &dbg_dir,
-    // );
     dbg_to_file(
         &c_pol_name_by_o_pol_name_plus_addns_path,
         "o2c_ods_policy_name_and_addns_path_to_cascade_policy_name",
         &dbg_dir,
     );
-    // dbg_to_file(
-    //     &c_pol_names_by_o_pol_name,
-    //     "o2c_ods_policy_name_to_cascade_policy_names",
-    //     &dbg_dir,
-    // );
 
     // Note: zone_list is the old way of managing zones, more recent versions
     // of OpenDNSSEC prefer to manage zones in the database.
