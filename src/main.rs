@@ -1,7 +1,6 @@
 mod schema;
 
 use std::{
-    arch::x86_64::_mm_maskz_gf2p8affine_epi64_epi8,
     collections::BTreeMap,
     fs::{File, create_dir},
     hash::{Hash, Hasher},
@@ -12,9 +11,10 @@ use std::{
     time::Duration,
 };
 
+use cascade::config::file::Spec;
 use cascade::policy::{
     AutoConfig, DsAlgorithm, NameserverCommsPolicy, OutboundPolicy, Policy, ReviewPolicy,
-    ServerPolicy, SignerDenialPolicy, SignerPolicy, SignerSerialPolicy, file::Spec,
+    ServerPolicy, SignerDenialPolicy, SignerPolicy, SignerSerialPolicy,
 };
 use domain::base::Ttl;
 use quick_xml::DeError;
@@ -47,7 +47,6 @@ async fn main() -> anyhow::Result<()> {
     let output_dir_path = args.next().unwrap();
 
     let dbg_dir = format!("{output_dir_path}/debug");
-    let c_pol_dir = "<C_POL_DIR_TODO>";
     let k2p_dir = format!("{output_dir_path}/kmi2pkcs11");
     let c_cli_args = "--server <C_CLI_SERVER_ARG_TODO>";
 
@@ -63,6 +62,14 @@ async fn main() -> anyhow::Result<()> {
         create_dir(&k2p_dir),
         format!("create directory '{k2p_dir}'"),
     );
+
+    println!("Loading {c_conf_toml_path}...");
+    let toml = std::fs::read_to_string(&c_conf_toml_path).unwrap();
+    let c_conf_spec: Spec = toml::from_str(&toml).unwrap();
+    let mut c_conf = cascade::config::Config::default();
+    c_conf_spec.parse_into(&mut c_conf);
+    let c_pol_dir = c_conf.policy_dir.clone();
+    dbg_to_file(&c_conf, "cascade_conf", &dbg_dir);
 
     println!("Loading {o_conf_xml_path}...");
     let xml = std::fs::read_to_string(o_conf_xml_path).unwrap();
@@ -108,10 +115,10 @@ async fn main() -> anyhow::Result<()> {
     let mut o_addns_path_by_o_zone_name = BTreeMap::<String, String>::new();
 
     // Cascade policy name -> Cascade policy
-    let mut c_pol_by_c_pol_name = BTreeMap::<String, Spec>::new();
+    let mut c_pol_by_c_pol_name = BTreeMap::<String, cascade::policy::file::Spec>::new();
 
     // ODS zone name -> ODS signed zone output path
-    let mut o_signed_zone_output_paths_by_zone_name = BTreeMap::<String, String>::new();
+    let _o_signed_zone_output_paths_by_zone_name = BTreeMap::<String, String>::new();
 
     // So for each combination of ODS policy and zone output adapter we need
     // a different Cascade policy.
@@ -373,7 +380,7 @@ fn create_cascade_policy(
     kasp: &crate::schema::xml::kasp::Policy,
     output: Option<&Outbound>,
     hsm_server_id: String,
-) -> Spec {
+) -> cascade::policy::file::Spec {
     // NOTE: OpenDNSSEC supports multiple keys per key type (KSK, ZSK, CSK)
     // per policy each having their own algorithm settings. Cascade only
     // supports one key specification per policy. Use the first key found.
@@ -487,7 +494,7 @@ fn create_cascade_policy(
         zones: Default::default(),
     };
 
-    Spec::build(&policy)
+    cascade::policy::file::Spec::build(&policy)
 }
 
 fn manual_or_automatic(manual_rollover: Option<()>) -> AutoConfig {
