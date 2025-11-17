@@ -639,7 +639,7 @@ enum Key<'a> {
 }
 
 /// A wrapper around the sqlx MySQL and SQLite database drivers.
-/// 
+///
 /// This wrapper exists because the sqlx `connect()` fn returns different
 /// concrete types for different database drivers so making a database query
 /// requires type specific code.
@@ -688,17 +688,13 @@ impl DbConn {
     }
 
     async fn db_version(&mut self) -> Result<schema::db::DatabaseVersion, sqlx::Error> {
+        // TODO: If we end up writing a lot of queries it might be good to
+        // extract the common code into a helper function or even a proc
+        // macro.
+        const Q: &str = "SELECT * FROM databaseversion";
         match self {
-            DbConn::MySQL(c) => {
-                sqlx::query_as("SELECT * FROM databaseVersion")
-                    .fetch_one(c)
-                    .await
-            }
-            DbConn::SQLite(c) => {
-                sqlx::query_as("SELECT * FROM databaseVersion")
-                    .fetch_one(c)
-                    .await
-            }
+            DbConn::MySQL(c) => sqlx::query_as(Q).fetch_one(c).await,
+            DbConn::SQLite(c) => sqlx::query_as(Q).fetch_one(c).await,
         }
     }
 }
