@@ -48,7 +48,6 @@ async fn main() -> anyhow::Result<()> {
 
     let dbg_dir = format!("{output_dir_path}/debug");
     let k2p_dir = format!("{output_dir_path}/kmi2pkcs11");
-    let c_cli_args = "--server <C_CLI_SERVER_ARG_TODO>";
 
     mk_nice_io_err(
         create_dir(&output_dir_path),
@@ -69,6 +68,16 @@ async fn main() -> anyhow::Result<()> {
     let mut c_conf = cascade::config::Config::default();
     c_conf_spec.parse_into(&mut c_conf);
     let c_pol_dir = c_conf.policy_dir.clone();
+    let c_remote_control_server = c_conf
+        .remote_control
+        .servers
+        .first()
+        .expect("Cascade config file should define a remote-control servder.");
+    let c_cli_args = format!(
+        "--server {}:{}",
+        c_remote_control_server.ip(),
+        c_remote_control_server.port()
+    );
     dbg_to_file(&c_conf, "cascade_conf", &dbg_dir);
 
     println!("Loading {o_conf_xml_path}...");
