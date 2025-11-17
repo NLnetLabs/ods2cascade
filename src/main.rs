@@ -72,7 +72,7 @@ async fn main() -> anyhow::Result<()> {
         .remote_control
         .servers
         .first()
-        .expect("Cascade config file should define a remote-control servder.");
+        .expect("Cascade config file should define a remote-control server.");
     let c_cli_args = format!(
         "--server {}:{}",
         c_remote_control_server.ip(),
@@ -81,7 +81,7 @@ async fn main() -> anyhow::Result<()> {
     dbg_to_file(&c_conf, "cascade_conf", &dbg_dir);
 
     println!("Loading {o_conf_xml_path}...");
-    let xml = std::fs::read_to_string(o_conf_xml_path).unwrap();
+    let xml = std::fs::read_to_string(&o_conf_xml_path).unwrap();
     let o_conf: Configuration = process_xml(&xml).unwrap();
     dbg_to_file(&o_conf, "ods_conf", &dbg_dir);
 
@@ -103,9 +103,9 @@ async fn main() -> anyhow::Result<()> {
     println!("Enforcer database version: {}", db_version.version);
 
     // Generate kmip2pkcs11 configuration fragments.
-    for o_repo in o_conf.repository_list.repositories {
-        let lib_path = o_repo.module;
-        let repo_name = sanitize_filename::sanitize(o_repo.name);
+    for o_repo in &o_conf.repository_list.repositories {
+        let lib_path = &o_repo.module;
+        let repo_name = sanitize_filename::sanitize(&o_repo.name);
         let out_path = format!("{k2p_dir}/{repo_name}.toml");
         println!("Generating '{out_path}'...");
         let mut out_file =
@@ -222,7 +222,6 @@ async fn main() -> anyhow::Result<()> {
     // NOTE: All policies should reference the hsm created based on config above.
     // for each Cascade policy to generate, generate it based on a given ODS
     // KASP and addns.
-    let hsm_server_id = "TODO".to_string();
 
     // Generate Cascade policies based on ODS policy and optional addns.xml
     // output adapter.
@@ -238,6 +237,63 @@ async fn main() -> anyhow::Result<()> {
             .iter()
             .find(|p| &p.name == o_pol_name)
             .unwrap();
+
+        // Determine the HSM to use for generating new keys in future.
+        // Possible cases:
+        //   - The OpenDNSSEC KASP key definitions all refer to the same
+        //     OpenDNSSEC repository. Use this repository as the HSM to
+        //     generate keys with, unless:
+        //       - The repository module appears to be SoftHSM in which case
+        //         don't use a HSM for future key generation at all as ODS
+        //         doesn't support on-disk keys but when using SoftHSM (which
+        //         uses OpenSSL cryptography) that has much the same security
+        //         guarantee as using the much faster on-disk OpenSSL based
+        //         cryptography offered by Cascade.
+        //   - The OpenDNSSEC KASP key definitions refer to more than one
+        //     OpenDNSSEC repository. Abort, we don't know how to handle this
+        //     case. Cascade generates new keys using a single HSM defined in
+        //     the policy. it can't generate keys using a different HSM per
+        //     key type.
+        let mut o_repos = kasp
+            .keys
+            .ksks
+            .iter()
+            .map(|r| &r.repository)
+            .chain(kasp.keys.zsks.iter().map(|r| &r.repository))
+            .chain(kasp.keys.csks.iter().map(|r| &r.repository))
+            .collect::<Vec<_>>();
+        o_repos.dedup();
+        o_repos.sort();
+
+        if o_repos.len() > 1 {
+            eprintln!(
+                "Policy '{o_pol_name}' refers to more than one HSM repository which is not supported by Cascade."
+            );
+            std::process::exit(1);
+        }
+
+        let o_repo_name = o_repos.first().unwrap();
+        let Some(o_repo) = o_conf
+            .repository_list
+            .repositories
+            .iter()
+            .find(|r| &r.name == *o_repo_name)
+        else {
+            eprintln!(
+                "Policy '{o_pol_name}' refers to HSM repository '{o_repo_name}' which is not defined in '{o_conf_xml_path}'"
+            );
+            std::process::exit(1);
+        };
+
+        let hsm_server_id = if o_repo.module.to_lowercase().contains("softhsm") {
+            println!(
+                "Note: Future keys for policy '{o_pol_name}' will be generated on-disk instead of using SoftHSM as they are equally secure but much faster when signing."
+            );
+            None
+        } else {
+            Some(o_repo.name.clone())
+        };
+
         let o_adapter = addns_path.as_ref().and_then(|addns_path| {
             o_adapter_by_addns_path
                 .get(addns_path)
@@ -388,7 +444,7 @@ fn process_xml<'de, T: Deserialize<'de>>(xml: &'de str) -> Result<T, DeError> {
 fn create_cascade_policy(
     kasp: &crate::schema::xml::kasp::Policy,
     output: Option<&Outbound>,
-    hsm_server_id: String,
+    hsm_server_id: Option<String>,
 ) -> cascade::policy::file::Spec {
     // NOTE: OpenDNSSEC supports multiple keys per key type (KSK, ZSK, CSK)
     // per policy each having their own algorithm settings. Cascade only
@@ -447,7 +503,7 @@ fn create_cascade_policy(
             },
         },
         key_manager: cascade::policy::KeyManagerPolicy {
-            hsm_server_id: Some(hsm_server_id),
+            hsm_server_id,
             use_csk,
             algorithm: algorithm.unwrap(),
             ksk_validity: ksk.map(|k| parse_ods_ts(&k.lifetime)),
