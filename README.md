@@ -17,7 +17,7 @@ Progress:
   - [x] Read **well-formed** SQLite/MySQL Enforcer database fields.
   - [ ] Determine the set of PKCS#11 keys to import.
   - [ ] Read HSM configuration from OpenDNSSEC configuration.
-  - [ ] Read database configuration from OpenDNSSEC configuration.
+  - [x] Read database configuration from OpenDNSSEC configuration.
   - [ ] Determine the OpenDNSSEC source of truth to use for each Cascade setting to be configured.
   - [ ] Determine how to map any concepts in OpenDNSSEC that have exactly corresponding counterparts in Cascade.
     - [x] Handle the 2:1 mapping of separate but related OpenDNSSEC KASP policy and ADDNS XML files onto single Cascade policy files.
