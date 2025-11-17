@@ -1,6 +1,7 @@
 mod schema;
 
 use std::{
+    arch::x86_64::_mm_maskz_gf2p8affine_epi64_epi8,
     collections::BTreeMap,
     fs::create_dir,
     hash::{Hash, Hasher},
@@ -79,6 +80,8 @@ async fn main() -> anyhow::Result<()> {
     let mut conn = DbConn::new(&o_conf.enforcer.datastore.datastore).await?;
     let db_version = conn.db_version().await?;
     println!("Enforcer database version: {}", db_version.version);
+
+    // Generate kmip2pkcs11 configuration fragments.
 
     // (ODS policy name, ODS addns path) -> Cascade policy name
     let mut c_pol_name_by_o_pol_name_plus_addns_path =
