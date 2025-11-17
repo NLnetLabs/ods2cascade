@@ -148,7 +148,7 @@ async fn main() -> anyhow::Result<()> {
             let mut hasher = std::hash::DefaultHasher::new();
             o_addns_path.hash(&mut hasher);
             let hash = hasher.finish().to_string();
-            let c_pol_name = format!("{o_pol_name}-{hash}");
+            let c_pol_name = sanitize_filename::sanitize(format!("{o_pol_name}-{hash}"));
 
             // Remember the Cascade policy name for this combination of ODS
             // policy name name and addns path.
@@ -161,6 +161,7 @@ async fn main() -> anyhow::Result<()> {
             // and so it must be a
             // Remember the Cascade policy name for this ODS policy name.
             let o_pol_name = o_zone.policy.clone();
+            let o_pol_name = sanitize_filename::sanitize(o_pol_name);
             let key = (o_pol_name.clone(), None);
             c_pol_name_by_o_pol_name_plus_addns_path.insert(key, o_pol_name)
         });
