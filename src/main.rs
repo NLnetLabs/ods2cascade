@@ -3,7 +3,7 @@ mod schema;
 use std::{
     arch::x86_64::_mm_maskz_gf2p8affine_epi64_epi8,
     collections::BTreeMap,
-    fs::create_dir,
+    fs::{File, create_dir},
     hash::{Hash, Hasher},
     io::{ErrorKind, Write},
     net::{IpAddr, SocketAddr},
@@ -48,6 +48,7 @@ async fn main() -> anyhow::Result<()> {
 
     let dbg_dir = format!("{output_dir_path}/debug");
     let c_pol_dir = "<C_POL_DIR_TODO>";
+    let k2p_dir = format!("{output_dir_path}/kmi2pkcs11");
     let c_cli_args = "--server <C_CLI_SERVER_ARG_TODO>";
 
     mk_nice_io_err(
@@ -57,6 +58,10 @@ async fn main() -> anyhow::Result<()> {
     mk_nice_io_err(
         create_dir(&dbg_dir),
         format!("create directory '{dbg_dir}'"),
+    );
+    mk_nice_io_err(
+        create_dir(&k2p_dir),
+        format!("create directory '{k2p_dir}'"),
     );
 
     println!("Loading {o_conf_xml_path}...");
@@ -82,6 +87,15 @@ async fn main() -> anyhow::Result<()> {
     println!("Enforcer database version: {}", db_version.version);
 
     // Generate kmip2pkcs11 configuration fragments.
+    for o_repo in o_conf.repository_list.repositories {
+        let lib_path = o_repo.module;
+        let repo_name = sanitize_filename::sanitize(o_repo.name);
+        let out_path = format!("{k2p_dir}/{repo_name}.toml");
+        println!("Generating '{out_path}'...");
+        let mut out_file =
+            File::create(out_path).expect("Should be able to write the kmip2pkcs11 file");
+        writeln!(out_file, r#"lib_path = "{lib_path}""#).unwrap();
+    }
 
     // (ODS policy name, ODS addns path) -> Cascade policy name
     let mut c_pol_name_by_o_pol_name_plus_addns_path =
@@ -224,7 +238,7 @@ async fn main() -> anyhow::Result<()> {
     println!("Generating '{output_dir_path}/commands.sh'...");
     let cmd_file_path = format!("{output_dir_path}/commands.sh");
     let mut cmd_file =
-        std::fs::File::create(cmd_file_path).expect("Should be able to write the command file");
+        File::create(cmd_file_path).expect("Should be able to write the command file");
 
     for c_pol_name in c_pol_by_c_pol_name.keys() {
         writeln!(
@@ -301,7 +315,7 @@ async fn main() -> anyhow::Result<()> {
 
 fn dbg_to_file<T: std::fmt::Debug>(v: T, name: &str, dbg_dir: &str) {
     let mut f = mk_nice_io_err(
-        std::fs::File::create(&format!("{dbg_dir}/{name}")),
+        File::create(&format!("{dbg_dir}/{name}")),
         format!("create file '{dbg_dir}/{name}' for writing"),
     );
     write!(f, "{:#?}", &v).unwrap();
