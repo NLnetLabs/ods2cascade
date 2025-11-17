@@ -80,21 +80,6 @@ async fn main() -> anyhow::Result<()> {
     let mut conn = DbConn::new(&o_conf.enforcer.datastore.datastore).await?;
     let db_version = conn.db_version().await?;
     println!("Enforcer database version: {}", db_version.version);
-    // TESTING
-    // let zones = sqlx::query_as::<_, schema::db::zone::Zone>("SELECT * FROM zone")
-    //     .fetch_all(&mut conn)
-    //     .await?;
-    // dbg!(zones);
-
-    // let policies = sqlx::query_as::<_, schema::db::policy::Policy>("SELECT * FROM policy")
-    //     .fetch_all(&mut conn)
-    //     .await?;
-    // dbg!(policies);
-
-    // let policy_keys = sqlx::query_as::<_, schema::db::policy::Key>("SELECT * FROM policyKey")
-    //     .fetch_all(&mut conn)
-    //     .await?;
-    // dbg!(policy_keys);
 
     // (ODS policy name, ODS addns path) -> Cascade policy name
     let mut c_pol_name_by_o_pol_name_plus_addns_path =
@@ -698,3 +683,19 @@ impl DbConn {
         }
     }
 }
+
+// TESTING
+// let zones = sqlx::query_as::<_, schema::db::zone::Zone>("SELECT * FROM zone")
+//     .fetch_all(&mut conn)
+//     .await?;
+// dbg!(zones);
+
+// let policies = sqlx::query_as::<_, schema::db::policy::Policy>("SELECT * FROM policy")
+//     .fetch_all(&mut conn)
+//     .await?;
+// dbg!(policies);
+
+// let policy_keys = sqlx::query_as::<_, schema::db::policy::Key>("SELECT * FROM policyKey")
+//     .fetch_all(&mut conn)
+//     .await?;
+// dbg!(policy_keys);
