@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Configuration>
+	<RepositoryList>
+	</RepositoryList>
+
+	<Common>
+		<PolicyFile>kasp.xml</PolicyFile>
+		<ZoneListFile>zonelist.xml</ZoneListFile>
+	</Common>
+
+	<Enforcer>
+		<Datastore><SQLite>kasp.db</SQLite></Datastore>
+		<!-- Set an empty working directory to override the default /var/opendnssec/tmp -->
+		<WorkingDirectory/>
+	</Enforcer>
+</Configuration>
