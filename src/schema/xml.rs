@@ -416,7 +416,7 @@ pub mod kasp {
     #[derive(Debug, Deserialize)]
     #[serde(rename_all = "PascalCase")]
     pub struct KASP {
-        #[serde(rename = "$value")]
+        #[serde(rename = "$value", default)]
         pub policies: Vec<Policy>,
     }
 
