@@ -162,6 +162,10 @@ impl Migrator {
         let o_kasps: KASP = process_xml(&xml)?;
         io_util.dbg_to_file(&o_kasps, "ods_kasp", &dbg_dir)?;
 
+        if o_kasps.policies.is_empty() {
+            bail!("No policies defined, nothing to migrate.");
+        }
+
         let o_zones_path = PathBuf::from_str(&o_conf.enforcer.working_directory)?;
         let o_zones_path = o_zones_path.join("zones.xml");
         println!("Loading {}...", o_zones_path.display());
@@ -866,13 +870,13 @@ mod test {
     use crate::{IoFile, IoUtil, Migrator, mk_nice_io_err};
 
     #[tokio::test]
-    async fn minimal() -> anyhow::Result<()> {
+    async fn minimal() {
         let mut io_util = TestIoUtil::new();
         io_util.push("conf.toml", include_str!("../test-data/minimal/conf.toml"));
         io_util.push("conf.xml", include_str!("../test-data/minimal/conf.xml"));
         io_util.push("kasp.xml", include_str!("../test-data/minimal/kasp.xml"));
         io_util.push("zones.xml", include_str!("../test-data/minimal/zones.xml"));
-        Migrator::migrate("conf.toml", "conf.xml", "out", &io_util).await
+        assert!(Migrator::migrate("conf.toml", "conf.xml", "out", &io_util).await.is_err());
     }
 
     struct TestIoUtil {
