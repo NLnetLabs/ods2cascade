@@ -392,6 +392,17 @@ impl Migrator {
         }
         writeln!(cmd_file, "cascade {c_cli_args} policy reload")?;
 
+        // Output `hsm add` commands for all HSMs.
+        // TODO: Should we restrict this to only those HSMs in use?
+        for o_repo in o_conf.repository_list.repositories {
+            writeln!(
+                cmd_file,
+                "cascade {c_cli_args} hsm add --insecure --username {} --password {} kmip2pkcs11",
+                o_repo.token_label,
+                o_repo.pin.unwrap()
+            )?;
+        }
+
         for zone in &o_zone_list.zones {
             let addns_path = o_addns_path_by_o_zone_name.get(&zone.name);
             let Some(c_pol_name) = c_pol_name_by_o_pol_name_plus_addns_path
