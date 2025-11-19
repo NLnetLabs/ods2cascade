@@ -9,6 +9,7 @@ atoi      = "2.0.0"
 cascade   = { git = "http://github.com/NLnetLabs/cascade", rev = "v0.1.0-alpha", version = "0.1.0-alpha" }
 domain    = { git = "https://github.com/NLnetLabs/domain", branch = "patches-for-nameshed-prototype" }
 fs-err = "3.2.0"
+pretty_assertions = "1.4.1"
 quick-xml = { version = "0.38.3", features = ["serialize"] }
 sanitize-filename = "0.6.0"
 serde     = { version = "1.0.228", features = ["derive"] }

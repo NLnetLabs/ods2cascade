@@ -1,3 +1,4 @@
+mod io;
 mod schema;
 
 use std::{
@@ -5,7 +6,7 @@ use std::{
     hash::{Hash, Hasher},
     io::Write,
     net::{IpAddr, SocketAddr},
-    path::{Path, PathBuf},
+    path::PathBuf,
     str::FromStr,
     time::Duration,
 };
@@ -17,7 +18,6 @@ use cascade::policy::{
     ServerPolicy, SignerDenialPolicy, SignerPolicy, SignerSerialPolicy,
 };
 use domain::base::Ttl;
-use fs_err::File;
 use quick_xml::DeError;
 use schema::xml::addns::{Adapter, Outbound};
 use schema::xml::conf::Configuration;
@@ -27,6 +27,7 @@ use serde::Deserialize;
 #[cfg(not(test))]
 use sqlx::{Connection, MySqlConnection, SqliteConnection};
 
+use crate::io::{IoUtil, IoUtilImpl};
 use crate::schema::xml::conf::DatastoreEnum;
 #[cfg(not(test))]
 use crate::schema::xml::conf::{Host, Mysql};
@@ -52,7 +53,7 @@ async fn main() {
         &c_conf_toml_path,
         &o_conf_xml_path,
         &output_dir_path,
-        &StdIoUtil,
+        &IoUtilImpl::new(),
     )
     .await
     {
@@ -61,51 +62,26 @@ async fn main() {
     }
 }
 
-trait IoFile: std::io::Write {}
-
-impl IoFile for File {}
-
-trait IoUtil {
-    type F: IoFile;
-    fn create<P: AsRef<Path>>(&self, path: P) -> std::io::Result<Self::F>;
-    fn create_dir<P: AsRef<Path>>(&self, path: P) -> std::io::Result<()>;
-    fn read_to_string<P: AsRef<Path>>(&self, path: P) -> std::io::Result<String>;
-    fn dbg_to_file<T: std::fmt::Debug>(
-        &self,
-        v: T,
-        name: &str,
-        dbg_dir: &str,
-    ) -> std::io::Result<()>;
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+enum MigrateError {
+    KaspPolicySetIsEmpty,
+    OnlyUnusedKaspPoliciesFound,
 }
 
-struct StdIoUtil;
-
-impl IoUtil for StdIoUtil {
-    type F = File;
-
-    fn create<P: AsRef<Path>>(&self, path: P) -> std::io::Result<Self::F> {
-        fs_err::File::create(&path.as_ref().to_path_buf())
-    }
-
-    fn create_dir<P: AsRef<Path>>(&self, path: P) -> std::io::Result<()> {
-        fs_err::create_dir(&path)
-    }
-
-    fn read_to_string<P: AsRef<Path>>(&self, path: P) -> std::io::Result<String> {
-        fs_err::read_to_string(&path)
-    }
-
-    fn dbg_to_file<T: std::fmt::Debug>(
-        &self,
-        v: T,
-        name: &str,
-        dbg_dir: &str,
-    ) -> std::io::Result<()> {
-        let mut f = self.create(&format!("{dbg_dir}/{name}"))?;
-        write!(f, "{:#?}", &v)?;
-        Ok(())
+impl std::fmt::Display for MigrateError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MigrateError::KaspPolicySetIsEmpty => {
+                f.write_str("No OpenDNSSEC KASP policies defined, nothing to migrate.")
+            }
+            MigrateError::OnlyUnusedKaspPoliciesFound => {
+                f.write_str("None of the found OpenDNSSEC KASP policies appear to be in use, nothing to migrate.")
+            },
+        }
     }
 }
+
+impl std::error::Error for MigrateError {}
 
 struct Migrator;
 
@@ -116,12 +92,15 @@ impl Migrator {
         output_dir_path: &str,
         io: &IO,
     ) -> anyhow::Result<()> {
-        let dbg_dir = format!("{output_dir_path}/debug");
-        let k2p_dir = format!("{output_dir_path}/kmi2pkcs11");
+        if io.exists(output_dir_path)? {
+            bail!(std::io::Error::new(
+                std::io::ErrorKind::AlreadyExists,
+                format!("Output directory '{output_dir_path}' already exists"),
+            ));
+        }
 
-        io.create_dir(&output_dir_path)?;
-        io.create_dir(&dbg_dir)?;
-        io.create_dir(&k2p_dir)?;
+        let dbg_dir = format!("{output_dir_path}/debug");
+        let k2p_dir = format!("{output_dir_path}/kmip2pkcs11");
 
         println!("Loading {c_conf_toml_path}...");
         let toml = io.read_to_string(&c_conf_toml_path)?;
@@ -138,20 +117,17 @@ impl Migrator {
             c_remote_control_server.ip(),
             c_remote_control_server.port()
         );
-        io.dbg_to_file(&c_conf, "cascade_conf", &dbg_dir)?;
 
         println!("Loading {o_conf_xml_path}...");
         let xml = io.read_to_string(&o_conf_xml_path)?;
         let o_conf: Configuration = process_xml(&xml)?;
-        io.dbg_to_file(&o_conf, "ods_conf", &dbg_dir)?;
 
         println!("Loading {}...", o_conf.common.policy_file);
         let xml = io.read_to_string(&o_conf.common.policy_file)?;
         let o_kasps: KASP = process_xml(&xml)?;
-        io.dbg_to_file(&o_kasps, "ods_kasp", &dbg_dir)?;
 
         if o_kasps.policies.is_empty() {
-            bail!("No policies defined, nothing to migrate.");
+            return Err(MigrateError::KaspPolicySetIsEmpty.into());
         }
 
         let o_zones_path = PathBuf::from_str(&o_conf.enforcer.working_directory)?;
@@ -159,22 +135,11 @@ impl Migrator {
         println!("Loading {}...", o_zones_path.display());
         let xml = io.read_to_string(&o_zones_path)?;
         let o_zone_list: ZoneList = process_xml(&xml)?;
-        io.dbg_to_file(&o_zone_list, "ods_zone_list", &dbg_dir)?;
 
         // Verify that we can connect to the Enforcer database.
         let mut conn = DbConn::new(&o_conf.enforcer.datastore.datastore).await?;
         let db_version = conn.db_version().await?;
         println!("Enforcer database version: {}", db_version.version);
-
-        // Generate kmip2pkcs11 configuration fragments.
-        for o_repo in &o_conf.repository_list.repositories {
-            let lib_path = &o_repo.module;
-            let repo_name = sanitize_filename::sanitize(&o_repo.name);
-            let out_path = format!("{k2p_dir}/{repo_name}.toml");
-            println!("Generating '{out_path}'...");
-            let mut out_file = io.create(out_path)?;
-            writeln!(out_file, r#"lib_path = "{lib_path}""#)?;
-        }
 
         // (ODS policy name, ODS addns path) -> Cascade policy name
         let mut c_pol_name_by_o_pol_name_plus_addns_path =
@@ -262,6 +227,18 @@ impl Migrator {
         });
         }
 
+        if c_pol_name_by_o_pol_name_plus_addns_path.is_empty() {
+            return Err(MigrateError::OnlyUnusedKaspPoliciesFound.into());
+        }
+
+        io.create_dir(&output_dir_path)?;
+        io.create_dir(&dbg_dir)?;
+        io.create_dir(&k2p_dir)?;
+
+        io.dbg_to_file(&c_conf, "cascade_conf", &dbg_dir)?;
+        io.dbg_to_file(&o_conf, "ods_conf", &dbg_dir)?;
+        io.dbg_to_file(&o_kasps, "ods_kasp", &dbg_dir)?;
+        io.dbg_to_file(&o_zone_list, "ods_zone_list", &dbg_dir)?;
         io.dbg_to_file(&o_adapter_by_addns_path, "ods_addns", &dbg_dir)?;
         io.dbg_to_file(
             &o_addns_path_by_o_zone_name,
@@ -273,6 +250,16 @@ impl Migrator {
             "o2c_ods_policy_name_and_addns_path_to_cascade_policy_name",
             &dbg_dir,
         )?;
+
+        // Generate kmip2pkcs11 configuration fragments.
+        for o_repo in &o_conf.repository_list.repositories {
+            let lib_path = &o_repo.module;
+            let repo_name = sanitize_filename::sanitize(&o_repo.name);
+            let out_path = format!("{k2p_dir}/{repo_name}.toml");
+            println!("Generating '{out_path}'...");
+            let mut out_file = io.create(out_path)?;
+            writeln!(out_file, r#"lib_path = "{lib_path}""#)?;
+        }
 
         // Note: zone_list is the old way of managing zones, more recent versions
         // of OpenDNSSEC prefer to manage zones in the database.
@@ -316,7 +303,7 @@ impl Migrator {
             //     case. Cascade generates new keys using a single HSM defined in
             //     the policy. it can't generate keys using a different HSM per
             //     key type.
-            let mut o_repos = kasp
+            let mut o_kasp_repos = kasp
                 .keys
                 .ksks
                 .iter()
@@ -324,17 +311,16 @@ impl Migrator {
                 .chain(kasp.keys.zsks.iter().map(|r| &r.repository))
                 .chain(kasp.keys.csks.iter().map(|r| &r.repository))
                 .collect::<Vec<_>>();
-            o_repos.dedup();
-            o_repos.sort();
+            o_kasp_repos.dedup();
+            o_kasp_repos.sort();
 
-            if o_repos.len() > 1 {
-                eprintln!(
+            if o_kasp_repos.len() > 1 {
+                bail!(
                     "Policy '{o_pol_name}' refers to more than one HSM repository which is not supported by Cascade."
                 );
-                std::process::exit(1);
             }
 
-            let o_repo_name = o_repos
+            let o_repo_name = o_kasp_repos
                 .first()
                 .ok_or_else(|| anyhow!("Expected at least one HSM repository"))?;
             let Some(o_repo) = o_conf
@@ -365,7 +351,14 @@ impl Migrator {
             });
             let c_pol = create_cascade_policy(&kasp, o_adapter, hsm_server_id.clone())?;
             let out_path = format!("{output_dir_path}/policies/{c_pol_name}.toml");
+            #[cfg(not(test))]
             c_pol.save(out_path.as_str().into())?;
+            #[cfg(test)]
+            {
+                let toml = toml::to_string_pretty(&c_pol)?;
+                let mut file = io.create(out_path)?;
+                file.write_all(toml.as_bytes())?;
+            }
             c_pol_by_c_pol_name.insert(c_pol_name.to_string(), c_pol);
         }
 
@@ -496,23 +489,19 @@ fn create_cascade_policy(
         let zsk_algorithm = Some(alg_to_key_parameters(Key::Zsk(key)));
         if zsk_algorithm != algorithm {
             bail!(
-                "Unsupported: ZSK algorithm ({}) != KSK algorithm ({})",
-                zsk_algorithm.unwrap(),
-                algorithm.unwrap(),
+                "Unsupported: ZSK algorithm ({:?}) != KSK algorithm ({:?})",
+                zsk_algorithm,
+                algorithm,
             )
         }
     }
 
     let csk = kasp.keys.csks.iter().next();
     if let Some(key) = csk {
-        let csk_algorithm = Some(alg_to_key_parameters(Key::Csk(key)));
-        if csk_algorithm != algorithm {
-            bail!(
-                "Unsupported: CSK algorithm ({}) != KSK algorithm ({})",
-                csk_algorithm.unwrap(),
-                algorithm.unwrap(),
-            )
+        if algorithm.is_some() {
+            bail!("Unsupported: Cannot use both CSK and KSK/ZSK");
         }
+        algorithm = Some(alg_to_key_parameters(Key::Csk(key)));
     }
 
     let mut send_notify_to = vec![];
@@ -833,87 +822,112 @@ impl DbConn {
 
 #[cfg(test)]
 mod test {
-    use std::{
-        collections::HashMap,
-        path::{Path, PathBuf},
+    use std::fmt::{Debug, Display};
+
+    use pretty_assertions::assert_eq;
+
+    use crate::{
+        MigrateError, Migrator,
+        io::{IoUtil, IoUtilImpl},
     };
 
-    use crate::{IoFile, IoUtil, Migrator};
+    //--- Helper macros ------------------------------------------------------
+
+    macro_rules! register_standard_test_files {
+        ($io:ident, $test_name:literal) => {
+            $io.register_file(
+                "conf.toml",
+                include_str!(concat!("../test-data/", $test_name, "/conf.toml")),
+            );
+            $io.register_file(
+                "conf.xml",
+                include_str!(concat!("../test-data/", $test_name, "/conf.xml")),
+            );
+            $io.register_file(
+                "kasp.xml",
+                include_str!(concat!("../test-data/", $test_name, "/kasp.xml")),
+            );
+            $io.register_file(
+                "zones.xml",
+                include_str!(concat!("../test-data/", $test_name, "/zones.xml")),
+            );
+        };
+    }
+
+    //--- Tests --------------------------------------------------------------
 
     #[tokio::test]
-    async fn minimal() {
-        let mut io = TestIoUtil::new();
-        io.push("conf.toml", include_str!("../test-data/minimal/conf.toml"));
-        io.push("conf.xml", include_str!("../test-data/minimal/conf.xml"));
-        io.push("kasp.xml", include_str!("../test-data/minimal/kasp.xml"));
-        io.push("zones.xml", include_str!("../test-data/minimal/zones.xml"));
-        assert!(
-            Migrator::migrate("conf.toml", "conf.xml", "out", &io)
-                .await
-                .is_err()
-        );
+    async fn output_dir_already_exists() {
+        let io = IoUtilImpl::new();
+        io.register_dir("out");
+
+        let res = Migrator::migrate("conf.toml", "conf.xml", "out", &io).await;
+        dbg!(&res);
+        let v = to_inner_err::<_, std::io::Error>(res);
+        assert_eq!(v.kind(), std::io::ErrorKind::AlreadyExists);
     }
 
-    struct TestIoUtil {
-        files: HashMap<PathBuf, &'static str>,
+    #[tokio::test]
+    async fn at_least_one_policy_required() {
+        let io = IoUtilImpl::new();
+        register_standard_test_files!(io, "minimal");
+
+        let res = Migrator::migrate("conf.toml", "conf.xml", "out", &io).await;
+        let v = to_inner_err::<_, MigrateError>(res);
+        assert_eq!(v, MigrateError::KaspPolicySetIsEmpty);
+
+        // Verify that no output directory was created.
+        assert!(!io.exists_dir("out"));
     }
 
-    impl TestIoUtil {
-        fn new() -> Self {
-            Self {
-                files: Default::default(),
-            }
-        }
+    #[tokio::test]
+    async fn single_policy_no_zone() {
+        let io = IoUtilImpl::new();
+        register_standard_test_files!(io, "1p-0z");
 
-        fn push<P: Into<PathBuf>>(&mut self, path: P, content: &'static str) {
-            self.files.insert(path.into(), content);
-        }
+        let res = Migrator::migrate("conf.toml", "conf.xml", "out", &io).await;
+        let v = to_inner_err::<_, MigrateError>(res);
+        assert_eq!(v, MigrateError::OnlyUnusedKaspPoliciesFound);
+
+        // Verify that no output directory was created.
+        assert!(!io.exists_dir("out"));
     }
 
-    struct TestFile;
+    #[tokio::test]
+    async fn single_policy_one_zone() -> anyhow::Result<()> {
+        let io = IoUtilImpl::new();
+        register_standard_test_files!(io, "1p-1z");
 
-    impl std::io::Write for TestFile {
-        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-            Ok(buf.len())
-        }
+        Migrator::migrate("conf.toml", "conf.xml", "out", &io).await?;
+        dbg!(&io);
+        assert!(io.exists_dir("out"));
+        assert!(io.exists_dir("out/kmip2pkcs11"));
 
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
+        let actual = io.read_to_string("out/kmip2pkcs11/somehsm.toml")?;
+        let expected = include_str!("../test-data/1p-1z/expected/kmip2pkcs11/somehsm.toml");
+        assert_eq!(actual, expected);
+
+        let actual = io.read_to_string("out/policies/minimal.toml")?;
+        let expected = include_str!("../test-data/1p-1z/expected/policies/minimal.toml");
+        assert_eq!(actual, expected);
+
+        let actual = io.read_to_string("out/commands.sh")?;
+        let expected = include_str!("../test-data/1p-1z/expected/commands.sh");
+        assert_eq!(actual, expected);
+
+        Ok(())
     }
 
-    impl IoFile for TestFile {}
+    //--- Helper functions ---------------------------------------------------
 
-    impl IoUtil for TestIoUtil {
-        type F = TestFile;
-
-        fn create<P: AsRef<Path>>(&self, _path: P) -> std::io::Result<Self::F> {
-            // TODO: Capture written files for test expectation validation.
-            Ok(TestFile)
-        }
-
-        fn create_dir<P: AsRef<Path>>(&self, _path: P) -> std::io::Result<()> {
-            Ok(())
-        }
-
-        fn read_to_string<P: AsRef<Path>>(&self, path: P) -> std::io::Result<String> {
-            self.files
-                .get(&path.as_ref().to_path_buf())
-                .map(ToString::to_string)
-                .ok_or(std::io::Error::other(format!(
-                    "Test fixture '{}' not configured, use TestIoUtil::push().",
-                    path.as_ref().display()
-                )))
-        }
-
-        fn dbg_to_file<T: std::fmt::Debug>(
-            &self,
-            _v: T,
-            _name: &str,
-            _dbg_dir: &str,
-        ) -> std::io::Result<()> {
-            // NOOP
-            Ok(())
-        }
+    fn to_inner_err<T, E>(res: Result<T, anyhow::Error>) -> E
+    where
+        E: Display + Debug + Send + Sync + 'static,
+    {
+        assert!(res.is_err());
+        let err = res.err().unwrap();
+        let inner_err = err.downcast::<E>();
+        assert!(inner_err.is_ok());
+        inner_err.unwrap()
     }
 }
