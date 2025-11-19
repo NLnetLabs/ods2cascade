@@ -2,9 +2,8 @@ mod schema;
 
 use std::{
     collections::BTreeMap,
-    fs::{File, create_dir},
     hash::{Hash, Hasher},
-    io::{ErrorKind, Write},
+    io::Write,
     net::{IpAddr, SocketAddr},
     path::{Path, PathBuf},
     str::FromStr,
@@ -18,6 +17,7 @@ use cascade::policy::{
     ServerPolicy, SignerDenialPolicy, SignerPolicy, SignerSerialPolicy,
 };
 use domain::base::Ttl;
+use fs_err::File;
 use quick_xml::DeError;
 use schema::xml::addns::{Adapter, Outbound};
 use schema::xml::conf::Configuration;
@@ -54,7 +54,8 @@ async fn main() {
         &output_dir_path,
         &StdIoUtil,
     )
-    .await {
+    .await
+    {
         eprintln!("Error: {err}");
         std::process::exit(1);
     }
@@ -83,24 +84,15 @@ impl IoUtil for StdIoUtil {
     type F = File;
 
     fn create<P: AsRef<Path>>(&self, path: P) -> std::io::Result<Self::F> {
-        mk_nice_io_err(
-            File::create(&path),
-            format!("create file '{}'", path.as_ref().display()),
-        )
+        fs_err::File::create(&path.as_ref().to_path_buf())
     }
 
     fn create_dir<P: AsRef<Path>>(&self, path: P) -> std::io::Result<()> {
-        mk_nice_io_err(
-            create_dir(&path),
-            format!("create directory '{}'", path.as_ref().display()),
-        )
+        fs_err::create_dir(&path)
     }
 
     fn read_to_string<P: AsRef<Path>>(&self, path: P) -> std::io::Result<String> {
-        mk_nice_io_err(
-            std::fs::read_to_string(&path),
-            format!("read file '{}'", path.as_ref().display()),
-        )
+        fs_err::read_to_string(&path)
     }
 
     fn dbg_to_file<T: std::fmt::Debug>(
@@ -109,10 +101,7 @@ impl IoUtil for StdIoUtil {
         name: &str,
         dbg_dir: &str,
     ) -> std::io::Result<()> {
-        let mut f = mk_nice_io_err(
-            File::create(&format!("{dbg_dir}/{name}")),
-            format!("create file '{dbg_dir}/{name}' for writing"),
-        )?;
+        let mut f = self.create(&format!("{dbg_dir}/{name}"))?;
         write!(f, "{:#?}", &v)?;
         Ok(())
     }
@@ -125,17 +114,17 @@ impl Migrator {
         c_conf_toml_path: &str,
         o_conf_xml_path: &str,
         output_dir_path: &str,
-        io_util: &IO,
+        io: &IO,
     ) -> anyhow::Result<()> {
         let dbg_dir = format!("{output_dir_path}/debug");
         let k2p_dir = format!("{output_dir_path}/kmi2pkcs11");
 
-        io_util.create_dir(&output_dir_path)?;
-        io_util.create_dir(&dbg_dir)?;
-        io_util.create_dir(&k2p_dir)?;
+        io.create_dir(&output_dir_path)?;
+        io.create_dir(&dbg_dir)?;
+        io.create_dir(&k2p_dir)?;
 
         println!("Loading {c_conf_toml_path}...");
-        let toml = io_util.read_to_string(&c_conf_toml_path)?;
+        let toml = io.read_to_string(&c_conf_toml_path)?;
         let c_conf_spec: Spec = toml::from_str(&toml)?;
         let mut c_conf = cascade::config::Config::default();
         c_conf_spec.parse_into(&mut c_conf);
@@ -149,17 +138,17 @@ impl Migrator {
             c_remote_control_server.ip(),
             c_remote_control_server.port()
         );
-        io_util.dbg_to_file(&c_conf, "cascade_conf", &dbg_dir)?;
+        io.dbg_to_file(&c_conf, "cascade_conf", &dbg_dir)?;
 
         println!("Loading {o_conf_xml_path}...");
-        let xml = io_util.read_to_string(&o_conf_xml_path)?;
+        let xml = io.read_to_string(&o_conf_xml_path)?;
         let o_conf: Configuration = process_xml(&xml)?;
-        io_util.dbg_to_file(&o_conf, "ods_conf", &dbg_dir)?;
+        io.dbg_to_file(&o_conf, "ods_conf", &dbg_dir)?;
 
         println!("Loading {}...", o_conf.common.policy_file);
-        let xml = io_util.read_to_string(&o_conf.common.policy_file)?;
+        let xml = io.read_to_string(&o_conf.common.policy_file)?;
         let o_kasps: KASP = process_xml(&xml)?;
-        io_util.dbg_to_file(&o_kasps, "ods_kasp", &dbg_dir)?;
+        io.dbg_to_file(&o_kasps, "ods_kasp", &dbg_dir)?;
 
         if o_kasps.policies.is_empty() {
             bail!("No policies defined, nothing to migrate.");
@@ -168,9 +157,9 @@ impl Migrator {
         let o_zones_path = PathBuf::from_str(&o_conf.enforcer.working_directory)?;
         let o_zones_path = o_zones_path.join("zones.xml");
         println!("Loading {}...", o_zones_path.display());
-        let xml = io_util.read_to_string(&o_zones_path)?;
+        let xml = io.read_to_string(&o_zones_path)?;
         let o_zone_list: ZoneList = process_xml(&xml)?;
-        io_util.dbg_to_file(&o_zone_list, "ods_zone_list", &dbg_dir)?;
+        io.dbg_to_file(&o_zone_list, "ods_zone_list", &dbg_dir)?;
 
         // Verify that we can connect to the Enforcer database.
         let mut conn = DbConn::new(&o_conf.enforcer.datastore.datastore).await?;
@@ -183,7 +172,7 @@ impl Migrator {
             let repo_name = sanitize_filename::sanitize(&o_repo.name);
             let out_path = format!("{k2p_dir}/{repo_name}.toml");
             println!("Generating '{out_path}'...");
-            let mut out_file = io_util.create(out_path)?;
+            let mut out_file = io.create(out_path)?;
             writeln!(out_file, r#"lib_path = "{lib_path}""#)?;
         }
 
@@ -228,7 +217,7 @@ impl Migrator {
             process_adapter(
             &o_zone.adapters.output.adapter,
             &mut o_adapter_by_addns_path,
-            io_util,
+            io,
         )?.and_then(|o_addns_path| {
             // This zone has an ODS output adapter of type DNS with zone
             // transfer settings defined via an addns.xml file. Confusingly
@@ -273,13 +262,13 @@ impl Migrator {
         });
         }
 
-        io_util.dbg_to_file(&o_adapter_by_addns_path, "ods_addns", &dbg_dir)?;
-        io_util.dbg_to_file(
+        io.dbg_to_file(&o_adapter_by_addns_path, "ods_addns", &dbg_dir)?;
+        io.dbg_to_file(
             &o_addns_path_by_o_zone_name,
             "o2c_zone_name_to_addns_path",
             &dbg_dir,
         )?;
-        io_util.dbg_to_file(
+        io.dbg_to_file(
             &c_pol_name_by_o_pol_name_plus_addns_path,
             "o2c_ods_policy_name_and_addns_path_to_cascade_policy_name",
             &dbg_dir,
@@ -383,7 +372,7 @@ impl Migrator {
         // Output `cascade` commands for the user to run.
         println!("Generating '{output_dir_path}/commands.sh'...");
         let cmd_file_path = format!("{output_dir_path}/commands.sh");
-        let mut cmd_file = io_util.create(cmd_file_path)?;
+        let mut cmd_file = io.create(cmd_file_path)?;
 
         for c_pol_name in c_pol_by_c_pol_name.keys() {
             writeln!(
@@ -449,8 +438,7 @@ impl Migrator {
         } else {
             // OpenDNSSEC was not configured to serve XFR. It must therefore have
             // been writing signed zones to files on disk.
-
-            println!("  - Alter ")
+            println!("  - Alter TODO")
         }
         println!("  - (optional) Configure Cascade to publish on the same ");
 
@@ -458,26 +446,10 @@ impl Migrator {
     }
 }
 
-fn mk_nice_io_err<T>(res: std::io::Result<T>, op: String) -> std::io::Result<T> {
-    res.inspect_err(|err| {
-        let reason = match err.kind() {
-            ErrorKind::NotFound => "path not found".to_string(),
-            ErrorKind::PermissionDenied => "permission denied".to_string(),
-            ErrorKind::AlreadyExists => "directory already exists".to_string(),
-            ErrorKind::ReadOnlyFilesystem => "read-only filesystem".to_string(),
-            ErrorKind::StorageFull => "no space available".to_string(),
-            ErrorKind::QuotaExceeded => "quota exceeded".to_string(),
-            ErrorKind::ResourceBusy => "filesystem busy".to_string(),
-            other => other.to_string(),
-        };
-        eprintln!("ERROR: Cannot {op}: {reason}");
-    })
-}
-
 fn process_adapter<IO: IoUtil>(
     adapter: &crate::schema::xml::zone_list::Adapter,
     addns_paths_to_adapters: &mut BTreeMap<String, Adapter>,
-    io_util: &IO,
+    io: &IO,
 ) -> anyhow::Result<Option<String>> {
     match adapter._type.as_str() {
         "File" => {
@@ -488,7 +460,7 @@ fn process_adapter<IO: IoUtil>(
             let path = adapter.path.clone();
             if !addns_paths_to_adapters.contains_key(&path) {
                 println!("Loading {path}...");
-                let xml = io_util.read_to_string(&path)?;
+                let xml = io.read_to_string(&path)?;
                 let adapter: Adapter = process_xml(&xml)?;
                 addns_paths_to_adapters.insert(path.clone(), adapter);
             }
@@ -866,16 +838,20 @@ mod test {
         path::{Path, PathBuf},
     };
 
-    use crate::{IoFile, IoUtil, Migrator, mk_nice_io_err};
+    use crate::{IoFile, IoUtil, Migrator};
 
     #[tokio::test]
     async fn minimal() {
-        let mut io_util = TestIoUtil::new();
-        io_util.push("conf.toml", include_str!("../test-data/minimal/conf.toml"));
-        io_util.push("conf.xml", include_str!("../test-data/minimal/conf.xml"));
-        io_util.push("kasp.xml", include_str!("../test-data/minimal/kasp.xml"));
-        io_util.push("zones.xml", include_str!("../test-data/minimal/zones.xml"));
-        assert!(Migrator::migrate("conf.toml", "conf.xml", "out", &io_util).await.is_err());
+        let mut io = TestIoUtil::new();
+        io.push("conf.toml", include_str!("../test-data/minimal/conf.toml"));
+        io.push("conf.xml", include_str!("../test-data/minimal/conf.xml"));
+        io.push("kasp.xml", include_str!("../test-data/minimal/kasp.xml"));
+        io.push("zones.xml", include_str!("../test-data/minimal/zones.xml"));
+        assert!(
+            Migrator::migrate("conf.toml", "conf.xml", "out", &io)
+                .await
+                .is_err()
+        );
     }
 
     struct TestIoUtil {
@@ -921,13 +897,13 @@ mod test {
         }
 
         fn read_to_string<P: AsRef<Path>>(&self, path: P) -> std::io::Result<String> {
-            mk_nice_io_err(
-                self.files
-                    .get(&path.as_ref().to_path_buf())
-                    .map(ToString::to_string)
-                    .ok_or(std::io::ErrorKind::NotFound.into()),
-                format!("read file '{}'", path.as_ref().display()),
-            )
+            self.files
+                .get(&path.as_ref().to_path_buf())
+                .map(ToString::to_string)
+                .ok_or(std::io::Error::other(format!(
+                    "Test fixture '{}' not configured, use TestIoUtil::push().",
+                    path.as_ref().display()
+                )))
         }
 
         fn dbg_to_file<T: std::fmt::Debug>(
