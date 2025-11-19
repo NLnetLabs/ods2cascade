@@ -1,8 +1,8 @@
 mod schema;
 
+use fs_err::{File, create_dir, read_to_string};
 use std::{
     collections::BTreeMap,
-    fs::{File, create_dir},
     hash::{Hash, Hasher},
     io::{ErrorKind, Write},
     net::{IpAddr, SocketAddr},
@@ -63,7 +63,7 @@ async fn main() -> anyhow::Result<()> {
     );
 
     println!("Loading {c_conf_toml_path}...");
-    let toml = std::fs::read_to_string(&c_conf_toml_path).unwrap();
+    let toml = read_to_string(&c_conf_toml_path).unwrap();
     let c_conf_spec: Spec = toml::from_str(&toml).unwrap();
     let mut c_conf = cascade::config::Config::default();
     c_conf_spec.parse_into(&mut c_conf);
@@ -81,19 +81,19 @@ async fn main() -> anyhow::Result<()> {
     dbg_to_file(&c_conf, "cascade_conf", &dbg_dir);
 
     println!("Loading {o_conf_xml_path}...");
-    let xml = std::fs::read_to_string(&o_conf_xml_path).unwrap();
+    let xml = read_to_string(&o_conf_xml_path).unwrap();
     let o_conf: Configuration = process_xml(&xml).unwrap();
     dbg_to_file(&o_conf, "ods_conf", &dbg_dir);
 
     println!("Loading {}...", o_conf.common.policy_file);
-    let xml = std::fs::read_to_string(&o_conf.common.policy_file).unwrap();
+    let xml = read_to_string(&o_conf.common.policy_file).unwrap();
     let o_kasps: KASP = process_xml(&xml).unwrap();
     dbg_to_file(&o_kasps, "ods_kasp", &dbg_dir);
 
     let o_zones_path = PathBuf::from_str(&o_conf.enforcer.working_directory).unwrap();
     let o_zones_path = o_zones_path.join("zones.xml");
     println!("Loading {}...", o_zones_path.display());
-    let xml = std::fs::read_to_string(&o_zones_path).unwrap();
+    let xml = read_to_string(&o_zones_path).unwrap();
     let o_zone_list: ZoneList = process_xml(&xml).unwrap();
     dbg_to_file(&o_zone_list, "ods_zone_list", &dbg_dir);
 
@@ -426,7 +426,7 @@ fn process_adapter(
             let path = adapter.path.clone();
             if !addns_paths_to_adapters.contains_key(&path) {
                 println!("Loading {path}...");
-                let xml = std::fs::read_to_string(&path).unwrap();
+                let xml = read_to_string(&path).unwrap();
                 let adapter: Adapter = process_xml(&xml)?;
                 addns_paths_to_adapters.insert(path.clone(), adapter);
             }

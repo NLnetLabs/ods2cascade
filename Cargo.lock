@@ -761,6 +761,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "fs-err"
+version = "3.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "62d91fd049c123429b018c47887d3f75a265540dd3c30ba9cb7bae9197edb03a"
+dependencies = [
+ "autocfg",
+]
+
+[[package]]
 name = "futures"
 version = "0.3.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1638,6 +1647,7 @@ dependencies = [
  "atoi",
  "cascade",
  "domain",
+ "fs-err",
  "quick-xml",
  "sanitize-filename",
  "serde",
