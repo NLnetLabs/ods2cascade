@@ -48,15 +48,14 @@ async fn main() {
     let o_conf_xml_path = args.next().unwrap();
     let output_dir_path = args.next().unwrap();
 
-    if Migrator::migrate(
+    if let Err(err) = Migrator::migrate(
         &c_conf_toml_path,
         &o_conf_xml_path,
         &output_dir_path,
         &StdIoUtil,
     )
-    .await
-    .is_err()
-    {
+    .await {
+        eprintln!("Error: {err}");
         std::process::exit(1);
     }
 }
