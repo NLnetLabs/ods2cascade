@@ -397,17 +397,7 @@ fn mk_nice_io_err<T>(res: std::io::Result<T>, op: String) -> T {
     match res {
         Ok(v) => v,
         Err(err) => {
-            let reason = match err.kind() {
-                ErrorKind::NotFound => "path not found".to_string(),
-                ErrorKind::PermissionDenied => "permission denied".to_string(),
-                ErrorKind::AlreadyExists => "directory already exists".to_string(),
-                ErrorKind::ReadOnlyFilesystem => "read-only filesystem".to_string(),
-                ErrorKind::StorageFull => "no space available".to_string(),
-                ErrorKind::QuotaExceeded => "quota exceeded".to_string(),
-                ErrorKind::ResourceBusy => "filesystem busy".to_string(),
-                other => other.to_string(),
-            };
-            eprintln!("ERROR: Cannot {op}: {reason}");
+            eprintln!("ERROR: {err}");
             std::process::exit(1);
         }
     }
