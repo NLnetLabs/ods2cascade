@@ -26,7 +26,7 @@ pub mod conf {
         pub name: String,
         pub module: String,
         pub token_label: String,
-        #[serde(default)]
+        #[serde(default, rename = "PIN")]
         pub pin: Option<String>,
         #[serde(default = "Repository::default_capacity")]
         pub capacity: usize,

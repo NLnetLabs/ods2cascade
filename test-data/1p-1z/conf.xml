@@ -2,8 +2,9 @@
 <Configuration>
 	<RepositoryList>
 		<Repository name="somehsm">
-			<Module>/path/to/some/pkcs11/module.so</Module>
-			<TokenLabel>OpenDNSSEC</TokenLabel>
+  		<Module>/path/to/some/pkcs11/module.so</Module>
+		<TokenLabel>OpenDNSSEC</TokenLabel>
+  		<PIN>1234</PIN>
 		</Repository>
 	</RepositoryList>
 

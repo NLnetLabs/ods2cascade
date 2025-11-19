@@ -62,10 +62,11 @@ async fn main() {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 enum MigrateError {
     KaspPolicySetIsEmpty,
     OnlyUnusedKaspPoliciesFound,
+    RepositoryWithoutPinNotYetSupported(String),
 }
 
 impl std::fmt::Display for MigrateError {
@@ -77,6 +78,9 @@ impl std::fmt::Display for MigrateError {
             MigrateError::OnlyUnusedKaspPoliciesFound => {
                 f.write_str("None of the found OpenDNSSEC KASP policies appear to be in use, nothing to migrate.")
             },
+            MigrateError::RepositoryWithoutPinNotYetSupported(o_repo_name) => {
+                write!(f, "HSM repository '{o_repo_name}' lacks a <PIN/>, which is not yet supported by Cascade.")
+            }
         }
     }
 }
@@ -121,6 +125,19 @@ impl Migrator {
         println!("Loading {o_conf_xml_path}...");
         let xml = io.read_to_string(&o_conf_xml_path)?;
         let o_conf: Configuration = process_xml(&xml)?;
+
+        // Check for HSM repositories without a PIN, which Cascade doesn't yet
+        // support.
+        if let Some(o_repo) = o_conf
+            .repository_list
+            .repositories
+            .iter()
+            .find(|r| r.pin.is_none())
+        {
+            return Err(
+                MigrateError::RepositoryWithoutPinNotYetSupported(o_repo.name.clone()).into(),
+            );
+        }
 
         println!("Loading {}...", o_conf.common.policy_file);
         let xml = io.read_to_string(&o_conf.common.policy_file)?;
@@ -373,7 +390,7 @@ impl Migrator {
                 "cp {output_dir_path}/policies/{c_pol_name}.toml {c_pol_dir}/"
             )?;
         }
-        writeln!(cmd_file, "cascade policy reload")?;
+        writeln!(cmd_file, "cascade {c_cli_args} policy reload")?;
 
         for zone in &o_zone_list.zones {
             let addns_path = o_addns_path_by_o_zone_name.get(&zone.name);
