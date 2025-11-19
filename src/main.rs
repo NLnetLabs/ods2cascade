@@ -911,6 +911,19 @@ mod test {
     }
 
     #[tokio::test]
+    async fn single_policy_no_zone_missing_hsm_pin() {
+        let io = IoUtilImpl::new();
+        register_standard_test_files!(io, "1p-0z-missing-hsm-pin");
+
+        let res = Migrator::migrate("conf.toml", "conf.xml", "out", &io).await;
+        let v = to_inner_err::<_, MigrateError>(res);
+        assert_eq!(v, MigrateError::RepositoryWithoutPinNotYetSupported("somehsm".to_string()));
+
+        // Verify that no output directory was created.
+        assert!(!io.exists_dir("out"));
+    }
+
+    #[tokio::test]
     async fn single_policy_one_zone() -> anyhow::Result<()> {
         let io = IoUtilImpl::new();
         register_standard_test_files!(io, "1p-1z");
