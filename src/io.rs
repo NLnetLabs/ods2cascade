@@ -4,6 +4,12 @@ use std::{
     path::Path,
 };
 
+/// Export either the normal or simulated impls of IoUtil defined below..
+// TODO: Find a better name than IoUtilImpl...
+pub use inner::IoUtilImpl;
+
+//--- IoUtil -----------------------------------------------------------------
+
 /// Trait for performing I/O.
 ///
 /// Enables real file I/O to be swapped out in tests for simulated I/O.
@@ -46,9 +52,7 @@ pub trait IoUtil {
     ) -> std::io::Result<()>;
 }
 
-/// Export either the normal or test version of the I/O utilities.
-// TODO: Find a better name than IoUtilImpl...
-pub use inner::IoUtilImpl;
+//--- Actual I/O impl of IoUtil ----------------------------------------------
 
 /// Actual I/O.
 #[cfg(not(test))]
@@ -60,6 +64,9 @@ mod inner {
 
     use crate::io::IoUtil;
 
+    //--- IoUtilImpl ---------------------------------------------------------
+
+    /// An implementation of IoUtil that uses real I/O.
     pub struct IoUtilImpl;
 
     impl IoUtil for IoUtilImpl {
@@ -98,6 +105,8 @@ mod inner {
     }
 }
 
+//--- Simulated I/O impl of IoUtil -------------------------------------------
+
 /// Simulated I/O for use by tests.
 #[cfg(test)]
 mod inner {
@@ -107,71 +116,17 @@ mod inner {
         sync::{Arc, Mutex},
     };
 
-    use domain::dep::octseq::OctetsBuilder;
-
     use crate::io::IoUtil;
 
-    pub struct TestFile {
-        path: PathBuf,
-        content: Vec<u8>,
-        is_dir: bool,
-        read_only: bool, // Only relevant for files
-    }
+    //--- TestFileSystem -----------------------------------------------------
 
-    /// Debug impl that assumes that file contains text.
-    impl std::fmt::Debug for TestFile {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            f.debug_struct("TestFile")
-                .field("path", &self.path)
-                .field("is_dir", &self.is_dir)
-                .field("read_only", &self.read_only)
-                .field("content", &String::from_utf8_lossy(&self.content))
-                .finish()
-        }
-    }
+    /// A type that stores information about files in the simulated
+    /// filesystem.
+    type SimulatedFs = Arc<Mutex<HashMap<PathBuf, SimulatedFsEntry>>>;
 
-    impl TestFile {
-        /// Creates a new read-only test file.
-        pub fn new_file<P: Into<PathBuf>, C: Into<Vec<u8>>>(path: P, content: C) -> Self {
-            Self {
-                path: path.into(),
-                content: content.into(),
-                is_dir: false,
-                read_only: true,
-            }
-        }
+    //--- IoUtilImpl ---------------------------------------------------------
 
-        /// Creates a new read-only test directory.
-        pub fn new_dir<P: Into<PathBuf>>(path: P) -> Self {
-            Self {
-                path: path.into(),
-                content: vec![],
-                is_dir: true,
-                read_only: false,
-            }
-        }
-
-        pub fn len(&self) -> usize {
-            self.content.len()
-        }
-
-        /// Clear the test file.
-        ///
-        /// # Panics
-        ///
-        /// Panics if the file is read-only.
-        pub fn clear(&mut self) {
-            if self.read_only {
-                panic!(
-                    "Cannot modify read-only test file '{}'",
-                    self.path.display()
-                )
-            }
-        }
-    }
-
-    type TestFileSystem = Arc<Mutex<HashMap<PathBuf, TestFile>>>;
-
+    /// An implementation of IoUtil that uses simulated I/O.
     #[derive(Debug)]
     pub struct IoUtilImpl {
         /// A collection of simulated files.
@@ -179,17 +134,19 @@ mod inner {
         /// Each entry is a filename and associated content.
         ///
         /// Calls to [`Self::read_to_string()`] will read from these "files".
-        fs: TestFileSystem,
+        fs: SimulatedFs,
     }
+
+    //--- impl IoUtil
 
     impl IoUtilImpl {
         /// Add a read-only simulated file to the simulated filesystem.
         pub fn register_file<P: Into<PathBuf>, S: Into<String>>(&self, path: P, content: S) {
             let path = path.into();
-            self.fs
-                .lock()
-                .unwrap()
-                .insert(path.clone(), TestFile::new_file(path, content.into()));
+            self.fs.lock().unwrap().insert(
+                path.clone(),
+                SimulatedFsEntry::new_file(path, content.into()),
+            );
         }
 
         /// Add a simulated directory to the simulated filesystem.
@@ -198,13 +155,16 @@ mod inner {
             self.fs
                 .lock()
                 .unwrap()
-                .insert(path.clone(), TestFile::new_dir(path));
+                .insert(path.clone(), SimulatedFsEntry::new_dir(path));
         }
 
-        pub fn open_file<P: Into<PathBuf>>(&self, path: P) -> Option<TestFileAccess> {
-            TestFileAccess::open(self.fs.clone(), path)
+        /// Get read/write access to a file in the simulated filesystem.
+        pub fn open_file<P: Into<PathBuf>>(&self, path: P) -> Option<SimluatedFileIo> {
+            SimluatedFileIo::open(self.fs.clone(), path)
         }
 
+        /// Returns true if the given path is an existing directory in the
+        /// simulated filesystem.
         pub fn exists_dir<P: Into<PathBuf>>(&self, path: P) -> bool {
             let path = path.into();
             let files = self.fs.lock().unwrap();
@@ -215,88 +175,10 @@ mod inner {
         }
     }
 
-    /// A mock file for testing purposes.
-    ///
-    /// No actual filesystem reads or writes will be done when working with
-    /// this file.
-    pub struct TestFileAccess {
-        files: TestFileSystem,
-        path: PathBuf,
-        read_pos: usize,
-    }
-
-    impl TestFileAccess {
-        /// Creates a new read-write test file.
-        ///
-        /// This function will create a test file if it does not exist, and
-        /// will truncate it if it does.
-        ///
-        /// # Panics
-        ///
-        /// This function will panic if the test file exists and is marked
-        /// read-only.
-        pub fn new<P: Into<PathBuf>>(files: TestFileSystem, path: P) -> Self {
-            let path = path.into();
-            {
-                let mut locked = files.lock().unwrap();
-                locked
-                    .entry(path.clone())
-                    .and_modify(|file| file.clear())
-                    .or_insert_with_key(|path| TestFile::new_file(path, String::new()));
-            }
-            Self {
-                files,
-                path,
-                read_pos: 0,
-            }
-        }
-
-        pub fn open<P: Into<PathBuf>>(files: TestFileSystem, path: P) -> Option<Self> {
-            let path = path.into();
-            {
-                let locked = files.lock().unwrap();
-                let Some(entry) = locked.get(&path) else {
-                    return None;
-                };
-                if entry.is_dir {
-                    return None;
-                }
-            }
-            Some(Self {
-                files,
-                path,
-                read_pos: 0,
-            })
-        }
-    }
-
-    impl std::io::Write for TestFileAccess {
-        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-            let mut files = self.files.lock().unwrap();
-            let file = files.get_mut(&self.path).unwrap();
-            file.content.append_slice(buf).unwrap();
-            Ok(buf.len())
-        }
-
-        fn flush(&mut self) -> std::io::Result<()> {
-            // No flush needed on a Vec<u8>.
-            Ok(())
-        }
-    }
-
-    impl std::io::Read for TestFileAccess {
-        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-            let files = self.files.lock().unwrap();
-            let file = files.get(&self.path).unwrap();
-            let len = std::cmp::min(buf.len(), file.len() - self.read_pos);
-            buf[0..len].clone_from_slice(&file.content[self.read_pos..self.read_pos + len]);
-            self.read_pos += len;
-            Ok(len)
-        }
-    }
+    //--- impl IoUtil
 
     impl IoUtil for IoUtilImpl {
-        type F = TestFileAccess;
+        type F = SimluatedFileIo;
 
         fn new() -> Self {
             Self {
@@ -305,7 +187,7 @@ mod inner {
         }
 
         fn create<P: AsRef<Path>>(&self, path: P) -> std::io::Result<Self::F> {
-            Ok(TestFileAccess::new(
+            Ok(SimluatedFileIo::new(
                 self.fs.clone(),
                 path.as_ref().to_path_buf(),
             ))
@@ -352,6 +234,173 @@ mod inner {
         ) -> std::io::Result<()> {
             // Do nothing as we don't need the debug files during tests.
             Ok(())
+        }
+    }
+
+    //--- SimulatedFsEntry ---------------------------------------------------
+
+    /// A file or directory entry in the simulated filesystem.
+    pub struct SimulatedFsEntry {
+        path: PathBuf,
+        content: Vec<u8>,
+        is_dir: bool,
+        read_only: bool, // Only relevant for files
+    }
+
+    impl SimulatedFsEntry {
+        /// Creates a new read-only test file.
+        pub fn new_file<P: Into<PathBuf>, C: Into<Vec<u8>>>(path: P, content: C) -> Self {
+            Self {
+                path: path.into(),
+                content: content.into(),
+                is_dir: false,
+                read_only: true,
+            }
+        }
+
+        /// Creates a new read-only test directory.
+        pub fn new_dir<P: Into<PathBuf>>(path: P) -> Self {
+            Self {
+                path: path.into(),
+                content: vec![],
+                is_dir: true,
+                read_only: false,
+            }
+        }
+
+        /// Get the length of the filesystem entry.
+        ///
+        /// Directories have zero length.
+        pub fn len(&self) -> usize {
+            self.content.len()
+        }
+
+        /// Clears the filesystem entry.
+        ///
+        /// Clears the content stored for a simulated file.
+        ///
+        /// Has no effect on simulated directories.
+        ///
+        /// # Panics
+        ///
+        /// Panics if the file is read-only.
+        pub fn clear(&mut self) {
+            if self.read_only {
+                panic!(
+                    "Cannot modify read-only test file '{}'",
+                    self.path.display()
+                )
+            }
+            self.content.clear();
+        }
+    }
+
+    ///--- impl Debug
+
+    /// Debug impl that assumes that file contains text.
+    ///
+    /// The default Debug impl would print the file content as a sequence of
+    /// integer byte values which is unhelpful when debugging.
+    impl std::fmt::Debug for SimulatedFsEntry {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.debug_struct("TestFile")
+                .field("path", &self.path)
+                .field("is_dir", &self.is_dir)
+                .field("read_only", &self.read_only)
+                .field("content", &String::from_utf8_lossy(&self.content))
+                .finish()
+        }
+    }
+
+    //--- SimulatedFileIo ----------------------------------------------------
+
+    /// Simulated read/write access to a simulated filesystem entry..
+    ///
+    /// No actual filesystem reads or writes will be done when working with
+    /// this file.
+    pub struct SimluatedFileIo {
+        files: SimulatedFs,
+        path: PathBuf,
+        read_pos: usize,
+    }
+
+    impl SimluatedFileIo {
+        /// Creates a new read-write test file.
+        ///
+        /// This function will create a test file if it does not exist, and
+        /// will truncate it if it does.
+        ///
+        /// # Panics
+        ///
+        /// This function will panic if the test file exists and is marked
+        /// read-only.
+        pub fn new<P: Into<PathBuf>>(files: SimulatedFs, path: P) -> Self {
+            let path = path.into();
+            {
+                let mut locked = files.lock().unwrap();
+                locked
+                    .entry(path.clone())
+                    .and_modify(|file| file.clear())
+                    .or_insert_with_key(|path| SimulatedFsEntry::new_file(path, String::new()));
+            }
+            Self {
+                files,
+                path,
+                read_pos: 0,
+            }
+        }
+
+        /// Opens a simulated file for read/write access.
+        ///
+        /// Returns None for non-existing paths and existing directories.
+        ///
+        /// Returns Some for a path that refers to an existing file in the
+        /// simulated filesystem.
+        pub fn open<P: Into<PathBuf>>(files: SimulatedFs, path: P) -> Option<Self> {
+            let path = path.into();
+            {
+                let locked = files.lock().unwrap();
+                let Some(entry) = locked.get(&path) else {
+                    return None;
+                };
+                if entry.is_dir {
+                    return None;
+                }
+            }
+            Some(Self {
+                files,
+                path,
+                read_pos: 0,
+            })
+        }
+    }
+
+    //--- impl Write
+
+    impl std::io::Write for SimluatedFileIo {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            let mut files = self.files.lock().unwrap();
+            let file = files.get_mut(&self.path).unwrap();
+            file.content.extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            // No flush needed on a Vec<u8>.
+            Ok(())
+        }
+    }
+
+    //--- impl Read
+
+    impl std::io::Read for SimluatedFileIo {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            let files = self.files.lock().unwrap();
+            let file = files.get(&self.path).unwrap();
+            let len = std::cmp::min(buf.len(), file.len() - self.read_pos);
+            buf[0..len].clone_from_slice(&file.content[self.read_pos..self.read_pos + len]);
+            self.read_pos += len;
+            Ok(len)
         }
     }
 }
