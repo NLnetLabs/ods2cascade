@@ -77,7 +77,7 @@ mod inner {
         }
 
         fn create<P: AsRef<Path>>(&self, path: P) -> std::io::Result<Self::F> {
-            fs_err::File::create(&path.as_ref().to_path_buf())
+            fs_err::File::create(path.as_ref().to_path_buf())
         }
 
         fn create_dir<P: AsRef<Path>>(&self, path: P) -> std::io::Result<()> {
@@ -98,7 +98,7 @@ mod inner {
             name: &str,
             dbg_dir: &str,
         ) -> std::io::Result<()> {
-            let mut f = self.create(&format!("{dbg_dir}/{name}"))?;
+            let mut f = self.create(format!("{dbg_dir}/{name}"))?;
             write!(f, "{:#?}", &v)?;
             Ok(())
         }
