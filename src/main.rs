@@ -106,7 +106,7 @@ impl Migrator {
         let k2p_dir = format!("{output_dir_path}/kmip2pkcs11");
 
         println!("Loading {c_conf_toml_path}...");
-        let toml = io.read_to_string(&c_conf_toml_path)?;
+        let toml = io.read_to_string(c_conf_toml_path)?;
         let c_conf_spec: Spec = toml::from_str(&toml)?;
         let mut c_conf = cascade::config::Config::default();
         c_conf_spec.parse_into(&mut c_conf);
@@ -122,7 +122,7 @@ impl Migrator {
         );
 
         println!("Loading {o_conf_xml_path}...");
-        let xml = io.read_to_string(&o_conf_xml_path)?;
+        let xml = io.read_to_string(o_conf_xml_path)?;
         let o_conf: Configuration = process_xml(&xml)?;
 
         // Check for HSM repositories without a PIN, which Cascade doesn't yet
@@ -247,7 +247,7 @@ impl Migrator {
             return Err(MigrateError::OnlyUnusedKaspPoliciesFound.into());
         }
 
-        io.create_dir(&output_dir_path)?;
+        io.create_dir(output_dir_path)?;
         io.create_dir(&dbg_dir)?;
         io.create_dir(&k2p_dir)?;
 
@@ -362,10 +362,9 @@ impl Migrator {
             let o_adapter = addns_path.as_ref().and_then(|addns_path| {
                 o_adapter_by_addns_path
                     .get(addns_path)
-                    .map(|a| a.dns.outbound.as_ref())
-                    .flatten()
+                    .and_then(|a| a.dns.outbound.as_ref())
             });
-            let c_pol = create_cascade_policy(&kasp, o_adapter, hsm_server_id.clone())?;
+            let c_pol = create_cascade_policy(kasp, o_adapter, hsm_server_id.clone())?;
             let out_path = format!("{output_dir_path}/policies/{c_pol_name}.toml");
             #[cfg(not(test))]
             c_pol.save(out_path.as_str().into())?;
@@ -506,24 +505,22 @@ fn create_cascade_policy(
     let use_csk = !kasp.keys.csks.is_empty();
     let mut algorithm = None;
 
-    let ksk = kasp.keys.ksks.iter().next();
+    let ksk = kasp.keys.ksks.first();
     if let Some(key) = ksk {
         algorithm = Some(alg_to_key_parameters(Key::Ksk(key)));
     }
 
-    let zsk = kasp.keys.zsks.iter().next();
+    let zsk = kasp.keys.zsks.first();
     if let Some(key) = zsk {
-        let zsk_algorithm = Some(alg_to_key_parameters(Key::Zsk(key)));
-        if zsk_algorithm != algorithm {
-            bail!(
-                "Unsupported: ZSK algorithm ({:?}) != KSK algorithm ({:?})",
-                zsk_algorithm,
-                algorithm,
-            )
+        if let Some(algorithm) = &algorithm {
+            let zsk_algorithm = alg_to_key_parameters(Key::Zsk(key));
+            if zsk_algorithm != *algorithm {
+                bail!("Unsupported: ZSK algorithm ({zsk_algorithm}) != KSK algorithm ({algorithm})",)
+            }
         }
     }
 
-    let csk = kasp.keys.csks.iter().next();
+    let csk = kasp.keys.csks.first();
     if let Some(key) = csk {
         if algorithm.is_some() {
             bail!("Unsupported: Cannot use both CSK and KSK/ZSK");
@@ -576,7 +573,7 @@ fn create_cascade_policy(
             cds_signature_lifetime: parse_ods_ts(&kasp.signatures.validity.default),
             cds_remain_time: parse_ods_ts(&kasp.signatures.refresh),
             ds_algorithm: DsAlgorithm::Sha256, // TODO: ODS doesn't have this
-            default_ttl: Ttl::from_secs(parse_ods_ts(&kasp.keys.ttl).try_into().unwrap()),
+            default_ttl: Ttl::from_secs(parse_ods_ts(&kasp.keys.ttl)),
             auto_remove: kasp.keys.purge.is_some(), // NOTE: ODS uses a delay, Cascade does not
         },
         signer: SignerPolicy {
@@ -792,16 +789,12 @@ impl DbConn {
                 };
                 let url = format!("mysql://{username}:{password}@{host}:{port}/{database}");
                 println!("Connecting to MySQL Enforcer database at {url}...");
-                MySqlConnection::connect(&url)
-                    .await
-                    .map(|c| DbConn::MySQL(c))
+                MySqlConnection::connect(&url).await.map(DbConn::MySQL)
             }
             DatastoreEnum::sqlite(db) => {
                 let url = format!("sqlite://{}", db.0);
                 println!("Connecting to SQLite Enforcer database at {url}...");
-                SqliteConnection::connect(&url)
-                    .await
-                    .map(|c| DbConn::SQLite(c))
+                SqliteConnection::connect(&url).await.map(DbConn::SQLite)
             }
         }
     }
@@ -815,6 +808,7 @@ impl DbConn {
         // TODO: If we end up writing a lot of queries it might be good to
         // extract the common code into a helper function or even a proc
         // macro.
+        #[cfg(not(test))]
         const Q: &str = "SELECT * FROM databaseversion";
         match self {
             #[cfg(not(test))]
