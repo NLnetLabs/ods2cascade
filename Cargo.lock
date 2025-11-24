@@ -257,7 +257,7 @@ dependencies = [
 [[package]]
 name = "cascade"
 version = "0.1.0-alpha5"
-source = "git+http://github.com/NLnetLabs/cascade#078f483453f48af06483a7c7e05c716aac94b6d5"
+source = "git+https://github.com/NLnetLabs/cascade#078f483453f48af06483a7c7e05c716aac94b6d5"
 dependencies = [
  "anstream",
  "arc-swap",
