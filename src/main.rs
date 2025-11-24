@@ -504,9 +504,7 @@ fn create_cascade_policy(
         if let Some(algorithm) = &algorithm {
             let zsk_algorithm = alg_to_key_parameters(Key::Zsk(key));
             if zsk_algorithm != *algorithm {
-                bail!(
-                    "Unsupported: ZSK algorithm ({zsk_algorithm}) != KSK algorithm ({algorithm})",
-                )
+                bail!("Unsupported: ZSK algorithm ({zsk_algorithm}) != KSK algorithm ({algorithm})",)
             }
         }
     }
