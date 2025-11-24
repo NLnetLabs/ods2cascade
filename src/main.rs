@@ -8,7 +8,6 @@ use std::{
     net::{IpAddr, SocketAddr},
     path::PathBuf,
     str::FromStr,
-    time::Duration,
 };
 
 use anyhow::{anyhow, bail};
@@ -587,10 +586,10 @@ fn create_cascade_policy(
                 SerialEnum::unixtime => SignerSerialPolicy::UnixTime,
                 SerialEnum::keep => SignerSerialPolicy::Keep,
             },
-            sig_inception_offset: Duration::from_secs(0), // TODO
-            sig_validity_time: Duration::from_secs(0),    // TODO
-            sig_remain_time: Duration::from_secs(0),      // TODO
-            denial: SignerDenialPolicy::NSec,             // TODO
+            sig_inception_offset: 0,          // TODO
+            sig_validity_time: 0,             // TODO
+            sig_remain_time: 0,               // TODO
+            denial: SignerDenialPolicy::NSec, // TODO
             review: ReviewPolicy {
                 required: false,
                 cmd_hook: None,
@@ -635,7 +634,7 @@ fn manual_or_automatic(manual_rollover: Option<()>) -> AutoConfig {
 // Based on duration_create_from_string() at:
 // https://github.com/opendnssec/opendnssec/blob/b7b69f7090e0180354a342bc54449e065987f3f6/common/duration.c#L111
 #[allow(non_snake_case)]
-fn parse_ods_ts(timestamp: &str) -> u64 {
+fn parse_ods_ts(timestamp: &str) -> u32 {
     if !timestamp.is_ascii() {
         panic!("Invalid OpenDNSSEC timestamp string '{timestamp}': not ASCII");
     }
@@ -674,7 +673,7 @@ fn parse_ods_ts(timestamp: &str) -> u64 {
             && seconds.is_none()
     });
 
-    let mut ts: u64 = 0;
+    let mut ts: u32 = 0;
     if let Some(v) = years {
         ts += v * 365 * 24 * 60 * 60;
     }
@@ -705,7 +704,7 @@ fn parse_ods_ts_fragment<T: Fn(usize) -> bool>(
     unit_name: &str,
     #[allow(non_snake_case)] X: &mut &[u8],
     filter: T,
-) -> Option<u64> {
+) -> Option<u32> {
     if let Some(idx) = X.iter().position(|c| *c == unit as u8) {
         if (filter)(idx) {
             let str = &X[..idx];
@@ -890,7 +889,6 @@ mod test {
         io.register_dir("out");
 
         let res = Migrator::migrate("conf.toml", "conf.xml", "out", &io).await;
-        dbg!(&res);
         let v = to_inner_err::<_, std::io::Error>(res);
         assert_eq!(v.kind(), std::io::ErrorKind::AlreadyExists);
     }
@@ -928,7 +926,10 @@ mod test {
 
         let res = Migrator::migrate("conf.toml", "conf.xml", "out", &io).await;
         let v = to_inner_err::<_, MigrateError>(res);
-        assert_eq!(v, MigrateError::RepositoryWithoutPinNotYetSupported("somehsm".to_string()));
+        assert_eq!(
+            v,
+            MigrateError::RepositoryWithoutPinNotYetSupported("somehsm".to_string())
+        );
 
         // Verify that no output directory was created.
         assert!(!io.exists_dir("out"));
@@ -940,7 +941,6 @@ mod test {
         register_standard_test_files!(io, "1p-1z");
 
         Migrator::migrate("conf.toml", "conf.xml", "out", &io).await?;
-        dbg!(&io);
         assert!(io.exists_dir("out"));
         assert!(io.exists_dir("out/kmip2pkcs11"));
 
