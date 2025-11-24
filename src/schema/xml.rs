@@ -70,7 +70,6 @@ pub mod conf {
         pub facility: SyslogFacility,
     }
 
-    #[allow(non_camel_case_types)]
     #[derive(Debug, Deserialize)]
     #[allow(non_camel_case_types)]
     pub enum SyslogFacility {
@@ -188,7 +187,6 @@ pub mod conf {
         pub datastore: DatastoreEnum,
     }
 
-    #[allow(non_camel_case_types)]
     #[derive(Debug, Deserialize)]
     #[allow(non_camel_case_types)]
     pub enum DatastoreEnum {
@@ -662,7 +660,6 @@ pub mod kasp {
         pub serial: SerialEnum,
     }
 
-    #[allow(non_camel_case_types)]
     #[derive(Debug, Deserialize)]
     #[allow(non_camel_case_types)]
     pub enum SerialEnum {
