@@ -276,6 +276,14 @@ impl Migrator {
             println!("Generating '{out_path}'...");
             let mut out_file = io.create(out_path)?;
             writeln!(out_file, r#"lib_path = "{lib_path}""#)?;
+            if let Some(privs) = o_conf.signer.as_ref().and_then(|c| c.privs.as_ref()) {
+                if let Some(user) = &privs.user {
+                    writeln!(out_file, r#"user = "{user}""#)?;
+                }
+                if let Some(group) = &privs.group {
+                    writeln!(out_file, r#"group = "{group}""#)?;
+                }
+            }
         }
 
         // Note: zone_list is the old way of managing zones, more recent versions
@@ -954,6 +962,32 @@ mod test {
 
         let actual = io.read_to_string("out/commands.sh")?;
         let expected = include_str!("../test-data/1p-1z/expected/commands.sh");
+        assert_eq!(actual, expected);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn kmip2pkcs11_should_use_same_user_as_ods_signer() -> anyhow::Result<()> {
+        let io = IoUtilImpl::new();
+        register_standard_test_files!(io, "1p-1z-signer-privs");
+
+        Migrator::migrate("conf.toml", "conf.xml", "out", &io).await?;
+        assert!(io.exists_dir("out"));
+        assert!(io.exists_dir("out/kmip2pkcs11"));
+
+        let actual = io.read_to_string("out/kmip2pkcs11/somehsm.toml")?;
+        let expected =
+            include_str!("../test-data/1p-1z-signer-privs/expected/kmip2pkcs11/somehsm.toml");
+        assert_eq!(actual, expected);
+
+        let actual = io.read_to_string("out/policies/minimal.toml")?;
+        let expected =
+            include_str!("../test-data/1p-1z-signer-privs/expected/policies/minimal.toml");
+        assert_eq!(actual, expected);
+
+        let actual = io.read_to_string("out/commands.sh")?;
+        let expected = include_str!("../test-data/1p-1z-signer-privs/expected/commands.sh");
         assert_eq!(actual, expected);
 
         Ok(())

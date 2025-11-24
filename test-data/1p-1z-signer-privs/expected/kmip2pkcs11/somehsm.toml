@@ -1,0 +1,3 @@
+lib_path = "/path/to/some/pkcs11/module.so"
+user = "some-user"
+group = "some-group"
