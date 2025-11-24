@@ -4,7 +4,7 @@ use fs_err::{File, create_dir, read_to_string};
 use std::{
     collections::BTreeMap,
     hash::{Hash, Hasher},
-    io::{ErrorKind, Write},
+    io::Write,
     net::{IpAddr, SocketAddr},
     path::PathBuf,
     str::FromStr,
@@ -297,10 +297,9 @@ async fn main() -> anyhow::Result<()> {
         let o_adapter = addns_path.as_ref().and_then(|addns_path| {
             o_adapter_by_addns_path
                 .get(addns_path)
-                .map(|a| a.dns.outbound.as_ref())
-                .flatten()
+                .and_then(|a| a.dns.outbound.as_ref())
         });
-        let c_pol = create_cascade_policy(&kasp, o_adapter, hsm_server_id.clone());
+        let c_pol = create_cascade_policy(kasp, o_adapter, hsm_server_id.clone());
         let out_path = format!("{output_dir_path}/policies/{c_pol_name}.toml");
         c_pol.save(out_path.as_str().into()).unwrap();
         c_pol_by_c_pol_name.insert(c_pol_name.to_string(), c_pol);
@@ -387,13 +386,13 @@ async fn main() -> anyhow::Result<()> {
 
 fn dbg_to_file<T: std::fmt::Debug>(v: T, name: &str, dbg_dir: &str) {
     let mut f = mk_nice_io_err(
-        File::create(&format!("{dbg_dir}/{name}")),
+        File::create(format!("{dbg_dir}/{name}")),
         format!("create file '{dbg_dir}/{name}' for writing"),
     );
     write!(f, "{:#?}", &v).unwrap();
 }
 
-fn mk_nice_io_err<T>(res: std::io::Result<T>, op: String) -> T {
+fn mk_nice_io_err<T>(res: std::io::Result<T>, _op: String) -> T {
     match res {
         Ok(v) => v,
         Err(err) => {
@@ -442,32 +441,32 @@ fn create_cascade_policy(
     let use_csk = !kasp.keys.csks.is_empty();
     let mut algorithm = None;
 
-    let ksk = kasp.keys.ksks.iter().next();
+    let ksk = kasp.keys.ksks.first();
     if let Some(key) = ksk {
         algorithm = Some(alg_to_key_parameters(Key::Ksk(key)));
     }
 
-    let zsk = kasp.keys.zsks.iter().next();
+    let zsk = kasp.keys.zsks.first();
     if let Some(key) = zsk {
-        let zsk_algorithm = Some(alg_to_key_parameters(Key::Zsk(key)));
-        if zsk_algorithm != algorithm {
-            panic!(
-                "Unsupported: ZSK algorithm ({}) != KSK algorithm ({})",
-                zsk_algorithm.unwrap(),
-                algorithm.unwrap(),
-            )
+        if let Some(algorithm) = &algorithm {
+            let zsk_algorithm = alg_to_key_parameters(Key::Zsk(key));
+            if zsk_algorithm != *algorithm {
+                panic!(
+                    "Unsupported: ZSK algorithm ({zsk_algorithm}) != KSK algorithm ({algorithm})",
+                )
+            }
         }
     }
 
-    let csk = kasp.keys.csks.iter().next();
+    let csk = kasp.keys.csks.first();
     if let Some(key) = csk {
-        let csk_algorithm = Some(alg_to_key_parameters(Key::Csk(key)));
-        if csk_algorithm != algorithm {
-            panic!(
-                "Unsupported: CSK algorithm ({}) != KSK algorithm ({})",
-                csk_algorithm.unwrap(),
-                algorithm.unwrap(),
-            )
+        if let Some(algorithm) = &algorithm {
+            let csk_algorithm = alg_to_key_parameters(Key::Csk(key));
+            if csk_algorithm != *algorithm {
+                panic!(
+                    "Unsupported: CSK algorithm ({csk_algorithm}) != KSK algorithm ({algorithm})",
+                )
+            }
         }
     }
 
@@ -727,16 +726,12 @@ impl DbConn {
                 };
                 let url = format!("mysql://{username}:{password}@{host}:{port}/{database}");
                 println!("Connecting to MySQL Enforcer database at {url}...");
-                MySqlConnection::connect(&url)
-                    .await
-                    .map(|c| DbConn::MySQL(c))
+                MySqlConnection::connect(&url).await.map(DbConn::MySQL)
             }
             DatastoreEnum::sqlite(db) => {
                 let url = format!("sqlite://{}", db.0);
                 println!("Connecting to SQLite Enforcer database at {url}...");
-                SqliteConnection::connect(&url)
-                    .await
-                    .map(|c| DbConn::SQLite(c))
+                SqliteConnection::connect(&url).await.map(DbConn::SQLite)
             }
         }
     }
