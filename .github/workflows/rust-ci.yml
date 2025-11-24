@@ -29,7 +29,8 @@ jobs:
 
         # Test with no features, default features ("") and all features.
         # Ordered fewest features to most features.
-        args: ["--no-default-features", "", "--all-features"]
+        # Commented out as this project doesn't have any features yet.
+        #args: ["--no-default-features", "", "--all-features"]
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
@@ -49,7 +50,8 @@ jobs:
 
         # Test with no features, default features ("") and all features.
         # Ordered fewest features to most features.
-        args: ["--no-default-features", "", "--all-features"]
+        # Commented out as this project doesn't have any features yet.
+        # args: ["--no-default-features", "", "--all-features"]
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
