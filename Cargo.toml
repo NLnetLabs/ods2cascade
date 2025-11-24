@@ -12,6 +12,7 @@ domain            = { git = "https://github.com/NLnetLabs/domain", branch = "pat
 fs-err            = "3.2.0"
 pretty_assertions = "1.4.1"
 quick-xml         = { version = "0.38.3", features = ["serialize"] }
+ron               = "0.12.0"
 sanitize-filename = "0.6.0"
 serde             = { version = "1.0.228", features = ["derive"] }
 sqlx              = { version = "0.8.6", features = ["sqlite", "mysql"] }
