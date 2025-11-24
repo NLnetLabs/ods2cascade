@@ -72,6 +72,7 @@ pub mod conf {
 
     #[allow(non_camel_case_types)]
     #[derive(Debug, Deserialize)]
+    #[allow(non_camel_case_types)]
     pub enum SyslogFacility {
         kern,
         user,
@@ -189,6 +190,7 @@ pub mod conf {
 
     #[allow(non_camel_case_types)]
     #[derive(Debug, Deserialize)]
+    #[allow(non_camel_case_types)]
     pub enum DatastoreEnum {
         #[serde(rename = "MySQL")]
         mysql(Mysql),
@@ -662,6 +664,7 @@ pub mod kasp {
 
     #[allow(non_camel_case_types)]
     #[derive(Debug, Deserialize)]
+    #[allow(non_camel_case_types)]
     pub enum SerialEnum {
         counter,
         datecounter,
