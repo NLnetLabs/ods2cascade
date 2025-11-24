@@ -141,7 +141,8 @@ pub mod conf {
     #[derive(Debug, Deserialize)]
     #[serde(rename_all = "PascalCase")]
     pub struct Signer {
-        privs: Option<Privileges>,
+        #[serde(rename = "Privileges")]
+        pub privs: Option<Privileges>,
         #[serde(default = "Signer::default_working_directory")]
         pub working_directory: String,
         #[serde(default = "Signer::default_worker_threads")]
