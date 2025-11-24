@@ -1,6 +1,7 @@
+#![allow(dead_code)]
+
 pub mod conf {
     use serde::Deserialize;
-    use std::usize;
 
     #[derive(Debug, Deserialize)]
     #[serde(rename_all = "PascalCase")]
@@ -69,8 +70,9 @@ pub mod conf {
         pub facility: SyslogFacility,
     }
 
+    #[allow(non_camel_case_types)]
     #[derive(Debug, Deserialize)]
-    enum SyslogFacility {
+    pub enum SyslogFacility {
         kern,
         user,
         mail,
@@ -185,6 +187,7 @@ pub mod conf {
         pub datastore: DatastoreEnum,
     }
 
+    #[allow(non_camel_case_types)]
     #[derive(Debug, Deserialize)]
     pub enum DatastoreEnum {
         #[serde(rename = "MySQL")]
@@ -300,6 +303,7 @@ pub mod zone_list {
 
     #[derive(Debug, Deserialize)]
     #[serde(rename_all = "PascalCase")]
+    #[allow(non_camel_case_types)]
     pub enum AdapterType {
         #[serde(rename = "$value")]
         adfile(File),
@@ -411,10 +415,10 @@ pub mod addns {
 
 pub mod kasp {
     use serde::Deserialize;
-    use std::usize;
 
     #[derive(Debug, Deserialize)]
     #[serde(rename_all = "PascalCase")]
+    #[allow(clippy::upper_case_acronyms)]
     pub struct KASP {
         #[serde(rename = "$value", default)]
         pub policies: Vec<Policy>,
@@ -491,6 +495,7 @@ pub mod kasp {
     }
 
     #[derive(Debug, Deserialize)]
+    #[allow(non_camel_case_types)]
     pub enum DenialEnum {
         #[serde(rename = "NSEC")]
         nsec(Nsec),
@@ -599,6 +604,7 @@ pub mod kasp {
     }
 
     #[derive(Debug, Deserialize)]
+    #[allow(clippy::enum_variant_names)]
     pub enum ZskRollType {
         ZskDoubleSignature,
         ZskPrePublication,
@@ -654,6 +660,7 @@ pub mod kasp {
         pub serial: SerialEnum,
     }
 
+    #[allow(non_camel_case_types)]
     #[derive(Debug, Deserialize)]
     pub enum SerialEnum {
         counter,

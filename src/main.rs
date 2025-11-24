@@ -106,7 +106,7 @@ impl Migrator {
         let k2p_dir = format!("{output_dir_path}/kmip2pkcs11");
 
         println!("Loading {c_conf_toml_path}...");
-        let toml = io.read_to_string(&c_conf_toml_path)?;
+        let toml = io.read_to_string(c_conf_toml_path)?;
         let c_conf_spec: Spec = toml::from_str(&toml)?;
         let mut c_conf = cascade::config::Config::default();
         c_conf_spec.parse_into(&mut c_conf);
@@ -122,7 +122,7 @@ impl Migrator {
         );
 
         println!("Loading {o_conf_xml_path}...");
-        let xml = io.read_to_string(&o_conf_xml_path)?;
+        let xml = io.read_to_string(o_conf_xml_path)?;
         let o_conf: Configuration = process_xml(&xml)?;
 
         // Check for HSM repositories without a PIN, which Cascade doesn't yet
@@ -247,7 +247,7 @@ impl Migrator {
             return Err(MigrateError::OnlyUnusedKaspPoliciesFound.into());
         }
 
-        io.create_dir(&output_dir_path)?;
+        io.create_dir(output_dir_path)?;
         io.create_dir(&dbg_dir)?;
         io.create_dir(&k2p_dir)?;
 
@@ -804,6 +804,7 @@ impl DbConn {
         // TODO: If we end up writing a lot of queries it might be good to
         // extract the common code into a helper function or even a proc
         // macro.
+        #[cfg(not(test))]
         const Q: &str = "SELECT * FROM databaseversion";
         match self {
             #[cfg(not(test))]

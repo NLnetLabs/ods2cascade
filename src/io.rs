@@ -159,6 +159,7 @@ mod inner {
         }
 
         /// Get read/write access to a file in the simulated filesystem.
+        #[allow(dead_code)]
         pub fn open_file<P: Into<PathBuf>>(&self, path: P) -> Option<SimluatedFileIo> {
             SimluatedFileIo::open(self.fs.clone(), path)
         }
@@ -295,7 +296,7 @@ mod inner {
         }
     }
 
-    ///--- impl Debug
+    //--- impl Debug
 
     /// Debug impl that assumes that file contains text.
     ///
@@ -360,9 +361,7 @@ mod inner {
             let path = path.into();
             {
                 let locked = files.lock().unwrap();
-                let Some(entry) = locked.get(&path) else {
-                    return None;
-                };
+                let entry = locked.get(&path)?;
                 if entry.is_dir {
                     return None;
                 }
