@@ -22,7 +22,7 @@ auto-expire = true
 auto-done = true
 
 [key-manager.csk]
-validity = "31536000"
+validity = 31536000
 auto-start = true
 auto-report = true
 auto-expire = true
