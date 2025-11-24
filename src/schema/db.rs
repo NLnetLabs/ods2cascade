@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 pub mod zone {
     #[derive(Debug, sqlx::FromRow)]
     #[sqlx(rename_all = "camelCase")]
