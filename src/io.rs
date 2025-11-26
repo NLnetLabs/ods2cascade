@@ -204,11 +204,16 @@ mod inner {
                 .lock()
                 .unwrap()
                 .get(&path.as_ref().to_path_buf())
-                .map(|file| String::from_utf8_lossy(&file.content).into_owned())
-                .ok_or(std::io::Error::other(format!(
-                    "File '{}' not found in simulated test filesystem",
-                    path.as_ref().display()
-                )))
+                .ok_or(std::io::Error::from(std::io::ErrorKind::NotFound))
+                .and_then(|file| {
+                    // Behave the same way as std::io::read_to_string()
+                    String::from_utf8(file.content.clone()).map_err(|_| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            "stream did not contain valid UTF-8",
+                        )
+                    })
+                })
         }
 
         fn exists<P: AsRef<Path>>(&self, path: P) -> std::io::Result<bool> {
