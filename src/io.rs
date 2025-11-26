@@ -375,7 +375,7 @@ mod inner {
             // bytes than that remain to be read.
             let bytes_to_read = std::cmp::min(buf.len(), bytes_remaining);
             buf[0..bytes_to_read]
-                .clone_from_slice(&file.content[self.read_pos..self.read_pos + bytes_to_read]);
+                .copy_from_slice(&file.content[self.read_pos..self.read_pos + bytes_to_read]);
 
             // Advance the read cursor ready for the next read.
             self.read_pos += bytes_to_read;
