@@ -191,9 +191,7 @@ mod inner {
         fn create_dir<P: AsRef<Path>>(&self, path: P) -> std::io::Result<()> {
             let path = path.as_ref().to_path_buf();
             match self.fs.lock().unwrap().entry(path.clone()) {
-                Entry::Occupied(_) => {
-                    Err(std::io::ErrorKind::AlreadyExists.into())
-                }
+                Entry::Occupied(_) => Err(std::io::ErrorKind::AlreadyExists.into()),
                 Entry::Vacant(e) => {
                     e.insert(SimulatedFsEntry::new_dir(path));
                     Ok(())
