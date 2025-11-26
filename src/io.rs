@@ -160,8 +160,8 @@ mod inner {
 
         /// Get read/write access to a file in the simulated filesystem.
         #[allow(dead_code)]
-        pub fn open_file<P: Into<PathBuf>>(&self, path: P) -> Option<SimluatedFileIo> {
-            SimluatedFileIo::open(self.fs.clone(), path)
+        pub fn open_file<P: Into<PathBuf>>(&self, path: P) -> Option<SimulatedFile> {
+            SimulatedFile::open(self.fs.clone(), path)
         }
 
         /// Returns true if the given path is an existing directory in the
@@ -179,7 +179,7 @@ mod inner {
     //--- impl IoUtil
 
     impl IoUtil for IoUtilImpl {
-        type F = SimluatedFileIo;
+        type F = SimulatedFile;
 
         fn new() -> Self {
             Self {
@@ -188,7 +188,7 @@ mod inner {
         }
 
         fn create<P: AsRef<Path>>(&self, path: P) -> std::io::Result<Self::F> {
-            Ok(SimluatedFileIo::new(
+            Ok(SimulatedFile::new(
                 self.fs.clone(),
                 path.as_ref().to_path_buf(),
             ))
@@ -313,19 +313,19 @@ mod inner {
         }
     }
 
-    //--- SimulatedFileIo ----------------------------------------------------
+    //--- SimulatedFile ------------------------------------------------------
 
     /// Simulated read/write access to a simulated filesystem entry..
     ///
     /// No actual filesystem reads or writes will be done when working with
     /// this file.
-    pub struct SimluatedFileIo {
+    pub struct SimulatedFile {
         files: SimulatedFs,
         path: PathBuf,
         read_pos: usize,
     }
 
-    impl SimluatedFileIo {
+    impl SimulatedFile {
         /// Creates a new read-write test file.
         ///
         /// This function will create a test file if it does not exist, and
@@ -376,7 +376,7 @@ mod inner {
 
     //--- impl Write
 
-    impl std::io::Write for SimluatedFileIo {
+    impl std::io::Write for SimulatedFile {
         fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
             let mut files = self.files.lock().unwrap();
             let file = files.get_mut(&self.path).unwrap();
@@ -392,7 +392,7 @@ mod inner {
 
     //--- impl Read
 
-    impl std::io::Read for SimluatedFileIo {
+    impl std::io::Read for SimulatedFile {
         fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
             let files = self.files.lock().unwrap();
             let file = files.get(&self.path).unwrap();
