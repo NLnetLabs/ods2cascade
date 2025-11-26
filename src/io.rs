@@ -366,10 +366,22 @@ mod inner {
         fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
             let files = self.files.lock().unwrap();
             let file = files.get(&self.path).unwrap();
-            let len = std::cmp::min(buf.len(), file.len() - self.read_pos);
-            buf[0..len].clone_from_slice(&file.content[self.read_pos..self.read_pos + len]);
-            self.read_pos += len;
-            Ok(len)
+
+            // The file read position should never be beyond the end of the
+            // file so we use `strict_sub()` here to panic if that is the case.
+            let bytes_remaining = file.len().strict_sub(self.read_pos);
+
+            // Read as many bytes as will fit in the buffer, or less if fewer
+            // bytes than that remain to be read.
+            let bytes_to_read = std::cmp::min(buf.len(), bytes_remaining);
+            buf[0..bytes_to_read]
+                .clone_from_slice(&file.content[self.read_pos..self.read_pos + bytes_to_read]);
+
+            // Advance the read cursor ready for the next read.
+            self.read_pos += bytes_to_read;
+
+            // Return the number of bytes read.
+            Ok(bytes_to_read)
         }
     }
 }
