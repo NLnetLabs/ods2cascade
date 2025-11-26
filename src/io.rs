@@ -158,12 +158,6 @@ mod inner {
                 .insert(path.clone(), SimulatedFsEntry::new_dir(path));
         }
 
-        /// Get read/write access to a file in the simulated filesystem.
-        #[allow(dead_code)]
-        pub fn open_file<P: Into<PathBuf>>(&self, path: P) -> Option<SimulatedFile> {
-            SimulatedFile::open(self.fs.clone(), path)
-        }
-
         /// Returns true if the given path is an existing directory in the
         /// simulated filesystem.
         pub fn exists_dir<P: Into<PathBuf>>(&self, path: P) -> bool {
@@ -349,28 +343,6 @@ mod inner {
                 path,
                 read_pos: 0,
             }
-        }
-
-        /// Opens a simulated file for read/write access.
-        ///
-        /// Returns None for non-existing paths and existing directories.
-        ///
-        /// Returns Some for a path that refers to an existing file in the
-        /// simulated filesystem.
-        pub fn open<P: Into<PathBuf>>(files: SimulatedFs, path: P) -> Option<Self> {
-            let path = path.into();
-            {
-                let locked = files.lock().unwrap();
-                let entry = locked.get(&path)?;
-                if entry.is_dir {
-                    return None;
-                }
-            }
-            Some(Self {
-                files,
-                path,
-                read_pos: 0,
-            })
         }
     }
 
