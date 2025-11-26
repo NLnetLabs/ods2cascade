@@ -315,7 +315,7 @@ mod inner {
 
     //--- SimulatedFile ------------------------------------------------------
 
-    /// Simulated read/write access to a simulated filesystem entry..
+    /// Simulated read/write access to a simulated filesystem entry.
     ///
     /// No actual filesystem reads or writes will be done when working with
     /// this file.
