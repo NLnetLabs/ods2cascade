@@ -111,7 +111,7 @@ mod inner {
 #[cfg(test)]
 mod inner {
     use std::{
-        collections::HashMap,
+        collections::{HashMap, hash_map::Entry},
         path::{Path, PathBuf},
         sync::{Arc, Mutex},
     };
@@ -189,16 +189,16 @@ mod inner {
         }
 
         fn create_dir<P: AsRef<Path>>(&self, path: P) -> std::io::Result<()> {
-            if self
-                .fs
-                .lock()
-                .unwrap()
-                .contains_key(&path.as_ref().to_path_buf())
-            {
-                return Err(std::io::ErrorKind::AlreadyExists.into());
+            let path = path.as_ref().to_path_buf();
+            match self.fs.lock().unwrap().entry(path.clone()) {
+                Entry::Occupied(_) => {
+                    Err(std::io::ErrorKind::AlreadyExists.into())
+                }
+                Entry::Vacant(e) => {
+                    e.insert(SimulatedFsEntry::new_dir(path));
+                    Ok(())
+                }
             }
-            self.register_dir(path.as_ref());
-            Ok(())
         }
 
         fn read_to_string<P: AsRef<Path>>(&self, path: P) -> std::io::Result<String> {
