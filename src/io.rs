@@ -372,9 +372,10 @@ mod inner {
             let files = self.files.lock().unwrap();
             let file = files.get(&self.path).unwrap();
 
-            // The file read position should never be beyond the end of the
-            // file so we use `strict_sub()` here to panic if that is the case.
-            let bytes_remaining = file.len().strict_sub(self.read_pos);
+            let bytes_remaining = file
+                .len()
+                .checked_sub(self.read_pos)
+                .ok_or(std::io::Error::from(std::io::ErrorKind::UnexpectedEof))?;
 
             // Read as many bytes as will fit in the buffer, or less if fewer
             // bytes than that remain to be read.
