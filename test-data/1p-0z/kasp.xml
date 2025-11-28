@@ -1,46 +1,43 @@
-<?xml version="1.0" encoding="UTF-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <KASP>
   <Policy name="minimal">
     <Description>A minimal policy</Description>
-    
     <Signatures>
       <Resign>PT2H</Resign>
-			<Refresh>P3D</Refresh>
-			<Validity>
-				<Default>P14D</Default>
-				<Denial>P14D</Denial>
-			</Validity>
-			<Jitter>PT12H</Jitter>
-			<InceptionOffset>PT3600S</InceptionOffset>
+      <Refresh>P3D</Refresh>
+      <Validity>
+        <Default>P14D</Default>
+        <Denial>P14D</Denial>
+      </Validity>
+      <Jitter>PT12H</Jitter>
+      <InceptionOffset>PT3600S</InceptionOffset>
     </Signatures>
-
-		<Denial><NSEC/></Denial>
-
-		<Keys>
-		  <TTL>PT3600S</TTL>
-			<RetireSafety>PT3600S</RetireSafety>
-			<PublishSafety>PT3600S</PublishSafety>
-			<!-- No actual keys defined! -->
-		</Keys>
-
-	  <Zone>
-			<PropagationDelay>PT43200S</PropagationDelay>
-			<SOA>
-				<TTL>PT3600S</TTL>
-				<Minimum>PT3600S</Minimum>
-				<Serial>unixtime</Serial>
-			</SOA>
-	  </Zone>
-
-		<Parent>
-			<PropagationDelay>PT9999S</PropagationDelay>
-			<DS>
-				<TTL>PT3600S</TTL>
-			</DS>
-			<SOA>
-				<TTL>PT172800S</TTL>
-				<Minimum>PT10800S</Minimum>
-			</SOA>
-		</Parent>
+    <Denial>
+      <NSEC />
+    </Denial>
+    <Keys>
+      <TTL>PT3600S</TTL>
+      <RetireSafety>PT3600S</RetireSafety>
+      <PublishSafety>PT3600S</PublishSafety>
+      <!-- No actual keys defined! -->
+    </Keys>
+    <Zone>
+      <PropagationDelay>PT43200S</PropagationDelay>
+      <SOA>
+        <TTL>PT3600S</TTL>
+        <Minimum>PT3600S</Minimum>
+        <Serial>unixtime</Serial>
+      </SOA>
+    </Zone>
+    <Parent>
+      <PropagationDelay>PT9999S</PropagationDelay>
+      <DS>
+        <TTL>PT3600S</TTL>
+      </DS>
+      <SOA>
+        <TTL>PT172800S</TTL>
+        <Minimum>PT10800S</Minimum>
+      </SOA>
+    </Parent>
   </Policy>
 </KASP>
