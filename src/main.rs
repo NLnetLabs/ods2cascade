@@ -950,7 +950,7 @@ mod test {
     #[tokio::test]
     async fn kmip2pkcs11_should_use_same_user_as_ods_signer() -> anyhow::Result<()> {
         let io = IoUtilImpl::new();
-        register_standard_test_files!(io, "1p-1z-signer-privs");
+        register_test_files(&io, "1p-1z-signer-privs")?;
 
         Migrator::migrate("conf.toml", "conf.xml", "out", &io).await?;
         assert!(io.exists_dir("out"));
