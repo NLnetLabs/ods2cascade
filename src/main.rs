@@ -832,7 +832,10 @@ impl DbConn {
 
 #[cfg(test)]
 mod test {
-    use std::fmt::{Debug, Display};
+    use std::{
+        fmt::{Debug, Display},
+        path::Path,
+    };
 
     use pretty_assertions::assert_eq;
 
@@ -840,29 +843,6 @@ mod test {
         MigrateError, Migrator,
         io::{IoUtil, IoUtilImpl},
     };
-
-    //--- Helper macros ------------------------------------------------------
-
-    macro_rules! register_standard_test_files {
-        ($io:ident, $test_name:literal) => {
-            $io.register_file(
-                "conf.toml",
-                include_str!(concat!("../test-data/", $test_name, "/conf.toml")),
-            );
-            $io.register_file(
-                "conf.xml",
-                include_str!(concat!("../test-data/", $test_name, "/conf.xml")),
-            );
-            $io.register_file(
-                "kasp.xml",
-                include_str!(concat!("../test-data/", $test_name, "/kasp.xml")),
-            );
-            $io.register_file(
-                "zones.xml",
-                include_str!(concat!("../test-data/", $test_name, "/zones.xml")),
-            );
-        };
-    }
 
     //--- Tests --------------------------------------------------------------
 
@@ -877,9 +857,9 @@ mod test {
     }
 
     #[tokio::test]
-    async fn at_least_one_policy_required() {
+    async fn at_least_one_policy_required() -> anyhow::Result<()> {
         let io = IoUtilImpl::new();
-        register_standard_test_files!(io, "minimal");
+        register_test_files(&io, "minimal")?;
 
         let res = Migrator::migrate("conf.toml", "conf.xml", "out", &io).await;
         let v = to_inner_err::<_, MigrateError>(res);
@@ -887,12 +867,14 @@ mod test {
 
         // Verify that no output directory was created.
         assert!(!io.exists_dir("out"));
+
+        Ok(())
     }
 
     #[tokio::test]
-    async fn single_policy_no_zone() {
+    async fn single_policy_no_zone() -> anyhow::Result<()> {
         let io = IoUtilImpl::new();
-        register_standard_test_files!(io, "1p-0z");
+        register_test_files(&io, "1p-0z")?;
 
         let res = Migrator::migrate("conf.toml", "conf.xml", "out", &io).await;
         let v = to_inner_err::<_, MigrateError>(res);
@@ -900,12 +882,14 @@ mod test {
 
         // Verify that no output directory was created.
         assert!(!io.exists_dir("out"));
+
+        Ok(())
     }
 
     #[tokio::test]
-    async fn single_policy_no_zone_missing_hsm_pin() {
+    async fn single_policy_no_zone_missing_hsm_pin() -> anyhow::Result<()> {
         let io = IoUtilImpl::new();
-        register_standard_test_files!(io, "1p-0z-missing-hsm-pin");
+        register_test_files(&io, "1p-0z-missing-hsm-pin")?;
 
         let res = Migrator::migrate("conf.toml", "conf.xml", "out", &io).await;
         let v = to_inner_err::<_, MigrateError>(res);
@@ -916,12 +900,14 @@ mod test {
 
         // Verify that no output directory was created.
         assert!(!io.exists_dir("out"));
+
+        Ok(())
     }
 
     #[tokio::test]
     async fn single_policy_one_zone() -> anyhow::Result<()> {
         let io = IoUtilImpl::new();
-        register_standard_test_files!(io, "1p-1z");
+        register_test_files(&io, "1p-1z")?;
 
         Migrator::migrate("conf.toml", "conf.xml", "out", &io).await?;
         assert!(io.exists_dir("out"));
@@ -943,6 +929,21 @@ mod test {
     }
 
     //--- Helper functions ---------------------------------------------------
+
+    fn register_test_files(io: &IoUtilImpl, test_name: &'static str) -> std::io::Result<()> {
+        for entry in std::fs::read_dir(format!("./test-data/{test_name}/"))? {
+            let entry = entry?;
+            let path = entry.path();
+            if !path.is_dir()
+                && let Some(fname) = path.file_name()
+            {
+                let fname = Path::new(fname);
+                let content = std::fs::read_to_string(&path)?;
+                io.register_file(fname, content);
+            }
+        }
+        Ok(())
+    }
 
     fn to_inner_err<T, E>(res: Result<T, anyhow::Error>) -> E
     where
