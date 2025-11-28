@@ -140,7 +140,7 @@ mod inner {
     //--- impl IoUtil
 
     impl IoUtilImpl {
-        /// Add a read-only simulated file to the simulated filesystem.
+        /// Add a file to the simulated filesystem.
         pub fn register_file<P: Into<PathBuf>, S: Into<String>>(&self, path: P, content: S) {
             let path = path.into();
             self.fs.lock().unwrap().insert(
@@ -242,27 +242,24 @@ mod inner {
         path: PathBuf,
         content: Vec<u8>,
         is_dir: bool,
-        read_only: bool, // Only relevant for files
     }
 
     impl SimulatedFsEntry {
-        /// Creates a new read-only test file.
+        /// Creates a new test file.
         pub fn new_file<P: Into<PathBuf>, C: Into<Vec<u8>>>(path: P, content: C) -> Self {
             Self {
                 path: path.into(),
                 content: content.into(),
                 is_dir: false,
-                read_only: true,
             }
         }
 
-        /// Creates a new read-only test directory.
+        /// Creates a new test directory.
         pub fn new_dir<P: Into<PathBuf>>(path: P) -> Self {
             Self {
                 path: path.into(),
                 content: vec![],
                 is_dir: true,
-                read_only: false,
             }
         }
 
@@ -278,17 +275,7 @@ mod inner {
         /// Clears the content stored for a simulated file.
         ///
         /// Has no effect on simulated directories.
-        ///
-        /// # Panics
-        ///
-        /// Panics if the file is read-only.
         pub fn clear(&mut self) {
-            if self.read_only {
-                panic!(
-                    "Cannot modify read-only test file '{}'",
-                    self.path.display()
-                )
-            }
             self.content.clear();
         }
     }
@@ -304,7 +291,6 @@ mod inner {
             f.debug_struct("TestFile")
                 .field("path", &self.path)
                 .field("is_dir", &self.is_dir)
-                .field("read_only", &self.read_only)
                 .field("content", &String::from_utf8_lossy(&self.content))
                 .finish()
         }
@@ -312,7 +298,7 @@ mod inner {
 
     //--- SimulatedFile ------------------------------------------------------
 
-    /// Simulated read/write access to a simulated filesystem entry.
+    /// Simulated read/write access to a simulated file.
     ///
     /// No actual filesystem reads or writes will be done when working with
     /// this file.
@@ -327,11 +313,6 @@ mod inner {
         ///
         /// This function will create a test file if it does not exist, and
         /// will truncate it if it does.
-        ///
-        /// # Panics
-        ///
-        /// This function will panic if the test file exists and is marked
-        /// read-only.
         pub fn new<P: Into<PathBuf>>(files: SimulatedFs, path: P) -> Self {
             let path = path.into();
             {
