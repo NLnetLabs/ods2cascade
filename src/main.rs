@@ -934,12 +934,12 @@ mod test {
         for entry in std::fs::read_dir(format!("./test-data/{test_name}/"))? {
             let entry = entry?;
             let path = entry.path();
-            if !path.is_dir()
-                && let Some(fname) = path.file_name()
-            {
-                let fname = Path::new(fname);
-                let content = std::fs::read_to_string(&path)?;
-                io.register_file(fname, content);
+            if !path.is_dir() {
+                if let Some(fname) = path.file_name() {
+                    let fname = Path::new(fname);
+                    let content = std::fs::read_to_string(&path)?;
+                    io.register_file(fname, content);
+                }
             }
         }
         Ok(())
