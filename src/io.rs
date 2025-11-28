@@ -111,7 +111,7 @@ mod inner {
 #[cfg(test)]
 mod inner {
     use std::{
-        collections::HashMap,
+        collections::{HashMap, hash_map::Entry},
         path::{Path, PathBuf},
         sync::{Arc, Mutex},
     };
@@ -140,7 +140,7 @@ mod inner {
     //--- impl IoUtil
 
     impl IoUtilImpl {
-        /// Add a read-only simulated file to the simulated filesystem.
+        /// Add a file to the simulated filesystem.
         pub fn register_file<P: Into<PathBuf>, S: Into<String>>(&self, path: P, content: S) {
             let path = path.into();
             self.fs.lock().unwrap().insert(
@@ -158,12 +158,6 @@ mod inner {
                 .insert(path.clone(), SimulatedFsEntry::new_dir(path));
         }
 
-        /// Get read/write access to a file in the simulated filesystem.
-        #[allow(dead_code)]
-        pub fn open_file<P: Into<PathBuf>>(&self, path: P) -> Option<SimluatedFileIo> {
-            SimluatedFileIo::open(self.fs.clone(), path)
-        }
-
         /// Returns true if the given path is an existing directory in the
         /// simulated filesystem.
         pub fn exists_dir<P: Into<PathBuf>>(&self, path: P) -> bool {
@@ -179,7 +173,7 @@ mod inner {
     //--- impl IoUtil
 
     impl IoUtil for IoUtilImpl {
-        type F = SimluatedFileIo;
+        type F = SimulatedFile;
 
         fn new() -> Self {
             Self {
@@ -188,23 +182,21 @@ mod inner {
         }
 
         fn create<P: AsRef<Path>>(&self, path: P) -> std::io::Result<Self::F> {
-            Ok(SimluatedFileIo::new(
+            Ok(SimulatedFile::new(
                 self.fs.clone(),
                 path.as_ref().to_path_buf(),
             ))
         }
 
         fn create_dir<P: AsRef<Path>>(&self, path: P) -> std::io::Result<()> {
-            if self
-                .fs
-                .lock()
-                .unwrap()
-                .contains_key(&path.as_ref().to_path_buf())
-            {
-                return Err(std::io::ErrorKind::AlreadyExists.into());
+            let path = path.as_ref().to_path_buf();
+            match self.fs.lock().unwrap().entry(path.clone()) {
+                Entry::Occupied(_) => Err(std::io::ErrorKind::AlreadyExists.into()),
+                Entry::Vacant(e) => {
+                    e.insert(SimulatedFsEntry::new_dir(path));
+                    Ok(())
+                }
             }
-            self.register_dir(path.as_ref());
-            Ok(())
         }
 
         fn read_to_string<P: AsRef<Path>>(&self, path: P) -> std::io::Result<String> {
@@ -212,11 +204,16 @@ mod inner {
                 .lock()
                 .unwrap()
                 .get(&path.as_ref().to_path_buf())
-                .map(|file| String::from_utf8_lossy(&file.content).into_owned())
-                .ok_or(std::io::Error::other(format!(
-                    "File '{}' not found in simulated test filesystem",
-                    path.as_ref().display()
-                )))
+                .ok_or(std::io::Error::from(std::io::ErrorKind::NotFound))
+                .and_then(|file| {
+                    // Behave the same way as std::io::read_to_string()
+                    String::from_utf8(file.content.clone()).map_err(|_| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            "stream did not contain valid UTF-8",
+                        )
+                    })
+                })
         }
 
         fn exists<P: AsRef<Path>>(&self, path: P) -> std::io::Result<bool> {
@@ -245,27 +242,24 @@ mod inner {
         path: PathBuf,
         content: Vec<u8>,
         is_dir: bool,
-        read_only: bool, // Only relevant for files
     }
 
     impl SimulatedFsEntry {
-        /// Creates a new read-only test file.
+        /// Creates a new test file.
         pub fn new_file<P: Into<PathBuf>, C: Into<Vec<u8>>>(path: P, content: C) -> Self {
             Self {
                 path: path.into(),
                 content: content.into(),
                 is_dir: false,
-                read_only: true,
             }
         }
 
-        /// Creates a new read-only test directory.
+        /// Creates a new test directory.
         pub fn new_dir<P: Into<PathBuf>>(path: P) -> Self {
             Self {
                 path: path.into(),
                 content: vec![],
                 is_dir: true,
-                read_only: false,
             }
         }
 
@@ -281,17 +275,7 @@ mod inner {
         /// Clears the content stored for a simulated file.
         ///
         /// Has no effect on simulated directories.
-        ///
-        /// # Panics
-        ///
-        /// Panics if the file is read-only.
         pub fn clear(&mut self) {
-            if self.read_only {
-                panic!(
-                    "Cannot modify read-only test file '{}'",
-                    self.path.display()
-                )
-            }
             self.content.clear();
         }
     }
@@ -307,34 +291,28 @@ mod inner {
             f.debug_struct("TestFile")
                 .field("path", &self.path)
                 .field("is_dir", &self.is_dir)
-                .field("read_only", &self.read_only)
                 .field("content", &String::from_utf8_lossy(&self.content))
                 .finish()
         }
     }
 
-    //--- SimulatedFileIo ----------------------------------------------------
+    //--- SimulatedFile ------------------------------------------------------
 
-    /// Simulated read/write access to a simulated filesystem entry..
+    /// Simulated read/write access to a simulated file.
     ///
     /// No actual filesystem reads or writes will be done when working with
     /// this file.
-    pub struct SimluatedFileIo {
+    pub struct SimulatedFile {
         files: SimulatedFs,
         path: PathBuf,
         read_pos: usize,
     }
 
-    impl SimluatedFileIo {
+    impl SimulatedFile {
         /// Creates a new read-write test file.
         ///
         /// This function will create a test file if it does not exist, and
         /// will truncate it if it does.
-        ///
-        /// # Panics
-        ///
-        /// This function will panic if the test file exists and is marked
-        /// read-only.
         pub fn new<P: Into<PathBuf>>(files: SimulatedFs, path: P) -> Self {
             let path = path.into();
             {
@@ -350,33 +328,11 @@ mod inner {
                 read_pos: 0,
             }
         }
-
-        /// Opens a simulated file for read/write access.
-        ///
-        /// Returns None for non-existing paths and existing directories.
-        ///
-        /// Returns Some for a path that refers to an existing file in the
-        /// simulated filesystem.
-        pub fn open<P: Into<PathBuf>>(files: SimulatedFs, path: P) -> Option<Self> {
-            let path = path.into();
-            {
-                let locked = files.lock().unwrap();
-                let entry = locked.get(&path)?;
-                if entry.is_dir {
-                    return None;
-                }
-            }
-            Some(Self {
-                files,
-                path,
-                read_pos: 0,
-            })
-        }
     }
 
     //--- impl Write
 
-    impl std::io::Write for SimluatedFileIo {
+    impl std::io::Write for SimulatedFile {
         fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
             let mut files = self.files.lock().unwrap();
             let file = files.get_mut(&self.path).unwrap();
@@ -392,14 +348,27 @@ mod inner {
 
     //--- impl Read
 
-    impl std::io::Read for SimluatedFileIo {
+    impl std::io::Read for SimulatedFile {
         fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
             let files = self.files.lock().unwrap();
             let file = files.get(&self.path).unwrap();
-            let len = std::cmp::min(buf.len(), file.len() - self.read_pos);
-            buf[0..len].clone_from_slice(&file.content[self.read_pos..self.read_pos + len]);
-            self.read_pos += len;
-            Ok(len)
+
+            let bytes_remaining = file
+                .len()
+                .checked_sub(self.read_pos)
+                .ok_or(std::io::Error::from(std::io::ErrorKind::UnexpectedEof))?;
+
+            // Read as many bytes as will fit in the buffer, or less if fewer
+            // bytes than that remain to be read.
+            let bytes_to_read = std::cmp::min(buf.len(), bytes_remaining);
+            buf[0..bytes_to_read]
+                .copy_from_slice(&file.content[self.read_pos..self.read_pos + bytes_to_read]);
+
+            // Advance the read cursor ready for the next read.
+            self.read_pos += bytes_to_read;
+
+            // Return the number of bytes read.
+            Ok(bytes_to_read)
         }
     }
 }
