@@ -905,27 +905,7 @@ mod test {
 
     #[tokio::test]
     async fn kmip2pkcs11_should_use_same_user_as_ods_signer() -> anyhow::Result<()> {
-        let io = IoUtilImpl::new();
-        register_test_files(&io, "1p-1z-signer-privs")?;
-
-        Migrator::migrate("conf.toml", "conf.xml", "out", &io).await?;
-        assert!(io.exists_dir("out"));
-        assert!(io.exists_dir("out/kmip2pkcs11"));
-
-        let actual = io.read_to_string("out/kmip2pkcs11/somehsm.toml")?;
-        let expected =
-            include_str!("../test-data/1p-1z-signer-privs/expected/kmip2pkcs11/somehsm.toml");
-        assert_eq!(actual, expected);
-
-        let actual = io.read_to_string("out/policies/minimal.toml")?;
-        let expected =
-            include_str!("../test-data/1p-1z-signer-privs/expected/policies/minimal.toml");
-        assert_eq!(actual, expected);
-
-        let actual = io.read_to_string("out/commands.sh")?;
-        let expected = include_str!("../test-data/1p-1z-signer-privs/expected/commands.sh");
-        assert_eq!(actual, expected);
-
+        run_test("1p-1z-signer-privs").await?;
         Ok(())
     }
 
