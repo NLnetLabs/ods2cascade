@@ -270,8 +270,8 @@ impl Migrator {
         // Generate kmip2pkcs11 configuration fragments.
         for o_repo in &o_conf.repository_list.repositories {
             let lib_path = &o_repo.module;
-            let repo_name = sanitize_filename::sanitize(&o_repo.name);
-            let out_path = format!("{k2p_dir}/{repo_name}.toml");
+            let hsm_name = sanitize_filename::sanitize(&o_repo.name);
+            let out_path = format!("{k2p_dir}/{hsm_name}.toml");
             println!("Generating '{out_path}'...");
             let mut out_file = io.create(out_path)?;
             writeln!(out_file, r#"lib_path = "{lib_path}""#)?;
