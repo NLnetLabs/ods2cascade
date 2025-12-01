@@ -397,9 +397,10 @@ impl Migrator {
         // Output `hsm add` commands for all HSMs.
         // TODO: Should we restrict this to only those HSMs in use?
         for o_repo in o_conf.repository_list.repositories {
+            let hsm_name = sanitize_filename::sanitize(&o_repo.name);
             writeln!(
                 cmd_file,
-                "cascade {c_cli_args} hsm add --insecure --username {} --password {} kmip2pkcs11",
+                "cascade {c_cli_args} hsm add --insecure --username {} --password {} {hsm_name}",
                 o_repo.token_label,
                 o_repo.pin.unwrap()
             )?;
@@ -906,11 +907,11 @@ mod test {
         Ok(())
     }
 
-    // #[tokio::test]
-    // async fn single_policy_two_zones_two_hsms() -> anyhow::Result<()> {
-    //     run_test("1p-2z-2hsm").await?;
-    //     Ok(())
-    // }
+    #[tokio::test]
+    async fn single_policy_two_zones_two_hsms() -> anyhow::Result<()> {
+        run_test("1p-2z-2hsm").await?;
+        Ok(())
+    }
 
     //--- Helper functions ---------------------------------------------------
 
