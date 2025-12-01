@@ -895,12 +895,6 @@ mod test {
         Ok(())
     }
 
-    // #[tokio::test]
-    // async fn single_policy_two_zones_two_hsms() -> anyhow::Result<()> {
-    //     run_test("1p-2z-2hsm").await?;
-    //     Ok(())
-    // }
-
     //--- Helper functions ---------------------------------------------------
 
     async fn run_test(test_name: &'static str) -> anyhow::Result<Fs> {
