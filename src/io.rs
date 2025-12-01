@@ -6,14 +6,14 @@ use std::{
 
 /// Export either the normal or simulated impls of IoUtil defined below..
 // TODO: Find a better name than IoUtilImpl...
-pub use inner::IoUtilImpl;
+pub use inner::Fs;
 
-//--- IoUtil -----------------------------------------------------------------
+//--- FsOps ------------------------------------------------------------------
 
 /// Trait for performing I/O.
 ///
 /// Enables real file I/O to be swapped out in tests for simulated I/O.
-pub trait IoUtil {
+pub trait FsOps {
     /// A type which offers an interface for writing for use with the write!
     /// and similar macros.
     type F: Read + Write;
@@ -62,14 +62,14 @@ mod inner {
 
     use fs_err::File;
 
-    use crate::io::IoUtil;
+    use crate::io::FsOps;
 
     //--- IoUtilImpl ---------------------------------------------------------
 
     /// An implementation of IoUtil that uses real I/O.
-    pub struct IoUtilImpl;
+    pub struct Fs;
 
-    impl IoUtil for IoUtilImpl {
+    impl FsOps for Fs {
         type F = File;
 
         fn new() -> Self {
@@ -111,35 +111,35 @@ mod inner {
 #[cfg(test)]
 mod inner {
     use std::{
-        collections::{HashMap, hash_map::Entry},
+        collections::{HashMap, HashSet, hash_map::Entry},
         path::{Path, PathBuf},
         sync::{Arc, Mutex},
     };
 
-    use crate::io::IoUtil;
+    use crate::io::FsOps;
 
-    //--- TestFileSystem -----------------------------------------------------
+    //--- SimulatedFsEntries -------------------------------------------------
 
     /// A type that stores information about files in the simulated
     /// filesystem.
-    type SimulatedFs = Arc<Mutex<HashMap<PathBuf, SimulatedFsEntry>>>;
+    type SimulatedFsEntries = Arc<Mutex<HashMap<PathBuf, SimulatedFsEntry>>>;
 
-    //--- IoUtilImpl ---------------------------------------------------------
+    //--- SimulatedFs --------------------------------------------------------
 
     /// An implementation of IoUtil that uses simulated I/O.
     #[derive(Debug)]
-    pub struct IoUtilImpl {
+    pub struct Fs {
         /// A collection of simulated files.
         ///
         /// Each entry is a filename and associated content.
         ///
         /// Calls to [`Self::read_to_string()`] will read from these "files".
-        fs: SimulatedFs,
+        fs: SimulatedFsEntries,
     }
 
     //--- impl IoUtil
 
-    impl IoUtilImpl {
+    impl Fs {
         /// Add a file to the simulated filesystem.
         pub fn register_file<P: Into<PathBuf>, S: Into<String>>(&self, path: P, content: S) {
             let path = path.into();
@@ -158,21 +158,20 @@ mod inner {
                 .insert(path.clone(), SimulatedFsEntry::new_dir(path));
         }
 
-        /// Returns true if the given path is an existing directory in the
-        /// simulated filesystem.
-        pub fn exists_dir<P: Into<PathBuf>>(&self, path: P) -> bool {
-            let path = path.into();
-            let files = self.fs.lock().unwrap();
-            let Some(entry) = files.get(&path) else {
-                return false;
-            };
-            entry.is_dir
+        pub fn file_paths(&self) -> HashSet<PathBuf> {
+            self.fs
+                .lock()
+                .unwrap()
+                .iter()
+                .filter_map(|(k, v)| if v.is_dir { None } else { Some(k) })
+                .cloned()
+                .collect::<HashSet<_>>()
         }
     }
 
     //--- impl IoUtil
 
-    impl IoUtil for IoUtilImpl {
+    impl FsOps for Fs {
         type F = SimulatedFile;
 
         fn new() -> Self {
@@ -303,7 +302,7 @@ mod inner {
     /// No actual filesystem reads or writes will be done when working with
     /// this file.
     pub struct SimulatedFile {
-        files: SimulatedFs,
+        files: SimulatedFsEntries,
         path: PathBuf,
         read_pos: usize,
     }
@@ -313,7 +312,7 @@ mod inner {
         ///
         /// This function will create a test file if it does not exist, and
         /// will truncate it if it does.
-        pub fn new<P: Into<PathBuf>>(files: SimulatedFs, path: P) -> Self {
+        pub fn new<P: Into<PathBuf>>(files: SimulatedFsEntries, path: P) -> Self {
             let path = path.into();
             {
                 let mut locked = files.lock().unwrap();
