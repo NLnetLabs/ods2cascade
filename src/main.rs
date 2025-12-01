@@ -26,7 +26,7 @@ use serde::Deserialize;
 #[cfg(not(test))]
 use sqlx::{Connection, MySqlConnection, SqliteConnection};
 
-use crate::io::{IoUtil, IoUtilImpl};
+use crate::io::{Fs, FsOps};
 use crate::schema::xml::conf::DatastoreEnum;
 #[cfg(not(test))]
 use crate::schema::xml::conf::{Host, Mysql};
@@ -52,7 +52,7 @@ async fn main() {
         &c_conf_toml_path,
         &o_conf_xml_path,
         &output_dir_path,
-        &IoUtilImpl::new(),
+        &Fs::new(),
     )
     .await
     {
@@ -89,7 +89,7 @@ impl std::error::Error for MigrateError {}
 struct Migrator;
 
 impl Migrator {
-    async fn migrate<IO: IoUtil>(
+    async fn migrate<IO: FsOps>(
         c_conf_toml_path: &str,
         o_conf_xml_path: &str,
         output_dir_path: &str,
@@ -469,7 +469,7 @@ impl Migrator {
     }
 }
 
-fn process_adapter<IO: IoUtil>(
+fn process_adapter<IO: FsOps>(
     adapter: &crate::schema::xml::zone_list::Adapter,
     addns_paths_to_adapters: &mut BTreeMap<String, Adapter>,
     io: &IO,
@@ -848,22 +848,24 @@ impl DbConn {
 #[cfg(test)]
 mod test {
     use std::{
+        collections::HashSet,
         fmt::{Debug, Display},
-        path::Path,
+        path::{Path, PathBuf},
+        str::FromStr,
     };
 
     use pretty_assertions::assert_eq;
 
     use crate::{
         MigrateError, Migrator,
-        io::{IoUtil, IoUtilImpl},
+        io::{Fs, FsOps},
     };
 
     //--- Tests --------------------------------------------------------------
 
     #[tokio::test]
     async fn output_dir_already_exists() {
-        let io = IoUtilImpl::new();
+        let io = Fs::new();
         io.register_dir("out");
 
         let res = Migrator::migrate("conf.toml", "conf.xml", "out", &io).await;
@@ -873,88 +875,138 @@ mod test {
 
     #[tokio::test]
     async fn at_least_one_policy_required() -> anyhow::Result<()> {
-        let io = IoUtilImpl::new();
-        register_test_files(&io, "minimal")?;
-
-        let res = Migrator::migrate("conf.toml", "conf.xml", "out", &io).await;
+        let res = run_test("minimal").await;
         let v = to_inner_err::<_, MigrateError>(res);
         assert_eq!(v, MigrateError::KaspPolicySetIsEmpty);
-
-        // Verify that no output directory was created.
-        assert!(!io.exists_dir("out"));
-
         Ok(())
     }
 
     #[tokio::test]
     async fn single_policy_no_zone() -> anyhow::Result<()> {
-        let io = IoUtilImpl::new();
-        register_test_files(&io, "1p-0z")?;
-
-        let res = Migrator::migrate("conf.toml", "conf.xml", "out", &io).await;
+        let res = run_test("1p-0z").await;
         let v = to_inner_err::<_, MigrateError>(res);
         assert_eq!(v, MigrateError::OnlyUnusedKaspPoliciesFound);
-
-        // Verify that no output directory was created.
-        assert!(!io.exists_dir("out"));
-
         Ok(())
     }
 
     #[tokio::test]
     async fn single_policy_no_zone_missing_hsm_pin() -> anyhow::Result<()> {
-        let io = IoUtilImpl::new();
-        register_test_files(&io, "1p-0z-missing-hsm-pin")?;
-
-        let res = Migrator::migrate("conf.toml", "conf.xml", "out", &io).await;
+        let res = run_test("1p-0z-missing-hsm-pin").await;
         let v = to_inner_err::<_, MigrateError>(res);
         assert_eq!(
             v,
             MigrateError::RepositoryWithoutPinNotYetSupported("somehsm".to_string())
         );
-
-        // Verify that no output directory was created.
-        assert!(!io.exists_dir("out"));
-
         Ok(())
     }
 
     #[tokio::test]
     async fn single_policy_one_zone() -> anyhow::Result<()> {
-        let io = IoUtilImpl::new();
-        register_test_files(&io, "1p-1z")?;
-
-        Migrator::migrate("conf.toml", "conf.xml", "out", &io).await?;
-        assert!(io.exists_dir("out"));
-        assert!(io.exists_dir("out/kmip2pkcs11"));
-
-        let actual = io.read_to_string("out/kmip2pkcs11/somehsm.toml")?;
-        let expected = include_str!("../test-data/1p-1z/expected/kmip2pkcs11/somehsm.toml");
-        assert_eq!(actual, expected);
-
-        let actual = io.read_to_string("out/policies/minimal.toml")?;
-        let expected = include_str!("../test-data/1p-1z/expected/policies/minimal.toml");
-        assert_eq!(actual, expected);
-
-        let actual = io.read_to_string("out/commands.sh")?;
-        let expected = include_str!("../test-data/1p-1z/expected/commands.sh");
-        assert_eq!(actual, expected);
-
+        run_test("1p-1z").await?;
         Ok(())
     }
 
+    // #[tokio::test]
+    // async fn single_policy_two_zones_two_hsms() -> anyhow::Result<()> {
+    //     run_test("1p-2z-2hsm").await?;
+    //     Ok(())
+    // }
+
     //--- Helper functions ---------------------------------------------------
 
-    fn register_test_files(io: &IoUtilImpl, test_name: &'static str) -> std::io::Result<()> {
-        for entry in std::fs::read_dir(format!("./test-data/{test_name}/"))? {
+    async fn run_test(test_name: &'static str) -> anyhow::Result<Fs> {
+        let test_dir = PathBuf::from_str(&format!("./test-data/{test_name}/")).unwrap();
+
+        // Create a simulated file system to read input files from and write
+        // generated outputs to.
+        let io = Fs::new();
+
+        // Remember the input paths used.
+        let mut input_paths = HashSet::new();
+
+        // Add test inputs to the simulated filesystem.
+        for entry in std::fs::read_dir(&test_dir)? {
             let entry = entry?;
             let path = entry.path();
             if !path.is_dir() {
                 if let Some(fname) = path.file_name() {
                     let fname = Path::new(fname);
                     let content = std::fs::read_to_string(&path)?;
+                    input_paths.insert(fname.to_path_buf());
                     io.register_file(fname, content);
                 }
+            }
+        }
+
+        // Run the migration.
+        Migrator::migrate("conf.toml", "conf.xml", "out", &io).await?;
+
+        // Verify the expected outputs
+        let mut expected_paths = HashSet::new();
+        let expected_dir = test_dir.join("expected");
+        get_paths_in_dir(&expected_dir, &mut expected_paths)?;
+
+        // Normalize the paths.
+        let mut expected_paths = expected_paths
+            .iter()
+            .map(|p| {
+                p.strip_prefix(&expected_dir).unwrap_or_else(|_| {
+                    panic!("No {} in '{}?", expected_dir.display(), p.display())
+                })
+            })
+            .collect::<Vec<_>>();
+        expected_paths.sort();
+
+        let actual_paths = io.file_paths();
+        let mut actual_paths = actual_paths
+            .iter()
+            // Filter out the input paths, we're only interested in generated
+            // outputs
+            .filter(|p| !input_paths.contains(*p))
+            // Filter out generated debug files.
+            .filter(|p| !p.starts_with("debug/"))
+            .map(|p| {
+                p.strip_prefix("out/")
+                    .unwrap_or_else(|_| panic!("No 'out/' in '{}'?", p.display()))
+            })
+            .collect::<Vec<_>>();
+        actual_paths.sort();
+
+        // Compare the set of expected vs actual output paths.
+        assert_eq!(
+            expected_paths, actual_paths,
+            "The expected output paths do not match the generated output paths"
+        );
+
+        // Compare the contents of the expected vs actual output files.
+        for path in actual_paths {
+            // Load the expected file content.
+            let expected = std::fs::read_to_string(expected_dir.join(path))?;
+            // Load the actual generated file content.
+            let actual = io.read_to_string(format!("out/{}", path.display()))?;
+            // Compare the two.
+            assert_eq!(
+                expected,
+                actual,
+                "Content of generated file '{}' does not match the expected content",
+                path.display()
+            );
+        }
+
+        Ok(io)
+    }
+
+    fn get_paths_in_dir<P: AsRef<Path>>(
+        path: P,
+        out_paths: &mut HashSet<PathBuf>,
+    ) -> std::io::Result<()> {
+        for entry in std::fs::read_dir(path)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.is_dir() {
+                get_paths_in_dir(path, out_paths)?;
+            } else {
+                out_paths.insert(path.to_path_buf());
             }
         }
         Ok(())
