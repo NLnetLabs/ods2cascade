@@ -829,7 +829,7 @@ struct TestDbSnapshot {
 
 impl DbConn {
     #[cfg(not(test))]
-    async fn new<IO: IoUtil>(datastore: &DatastoreEnum, io: &IO) -> Result<DbConn, sqlx::Error> {
+    async fn new<IO: FsOps>(datastore: &DatastoreEnum, io: &IO) -> Result<DbConn, sqlx::Error> {
         match datastore {
             DatastoreEnum::mysql(Mysql {
                 host,
@@ -855,7 +855,7 @@ impl DbConn {
     }
 
     #[cfg(test)]
-    async fn new<IO: IoUtil>(datastore: &DatastoreEnum, io: &IO) -> Result<DbConn, sqlx::Error> {
+    async fn new<IO: FsOps>(datastore: &DatastoreEnum, io: &IO) -> Result<DbConn, sqlx::Error> {
         match datastore {
             DatastoreEnum::mysql(_) => todo!(),
             DatastoreEnum::sqlite(_) => todo!(),
@@ -980,31 +980,17 @@ mod test {
 
     #[tokio::test]
     async fn require_consistent_zones_xml() -> anyhow::Result<()> {
-        let io = IoUtilImpl::new();
-        register_test_files(&io, "1p-1z-inconsistent-zones-xml")?;
-
-        let res = Migrator::migrate("conf.toml", "conf.xml", "out", &io).await;
+        let res = run_test("1p-1z-inconsistent-zones-xml").await;
         let v = to_inner_err::<_, MigrateError>(res);
         assert!(matches!(v, MigrateError::InconsistentState(_)));
-
-        // Verify that no output directory was created.
-        assert!(!io.exists_dir("out"));
-
         Ok(())
     }
 
     #[tokio::test]
     async fn require_signconf_written_true() -> anyhow::Result<()> {
-        let io = IoUtilImpl::new();
-        register_test_files(&io, "1p-1z-signconf-write-pending")?;
-
-        let res = Migrator::migrate("conf.toml", "conf.xml", "out", &io).await;
+        let res = run_test("1p-1z-signconf-write-pending").await;
         let v = to_inner_err::<_, MigrateError>(res);
         assert!(matches!(v, MigrateError::OutdatedState(_)));
-
-        // Verify that no output directory was created.
-        assert!(!io.exists_dir("out"));
-
         Ok(())
     }
 
