@@ -27,7 +27,7 @@ pub mod conf {
         pub name: String,
         pub module: String,
         pub token_label: String,
-        #[serde(default)]
+        #[serde(default, rename = "PIN")]
         pub pin: Option<String>,
         #[serde(default = "Repository::default_capacity")]
         pub capacity: usize,
@@ -420,7 +420,7 @@ pub mod kasp {
     #[serde(rename_all = "PascalCase")]
     #[allow(clippy::upper_case_acronyms)]
     pub struct KASP {
-        #[serde(rename = "$value")]
+        #[serde(rename = "$value", default)]
         pub policies: Vec<Policy>,
     }
 
