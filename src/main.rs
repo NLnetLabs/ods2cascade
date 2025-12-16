@@ -277,10 +277,18 @@ impl Migrator {
             writeln!(out_file, r#"lib_path = "{lib_path}""#)?;
             if let Some(privs) = o_conf.signer.as_ref().and_then(|c| c.privs.as_ref()) {
                 if let Some(user) = &privs.user {
-                    writeln!(out_file, r#"user = "{user}" # Based on <Signer><Privileges><User> from OpenDNSSEC configuration file {}"#, o_conf_xml_path)?;
+                    writeln!(
+                        out_file,
+                        r#"user = "{user}" # Based on <Signer><Privileges><User> from OpenDNSSEC configuration file {}"#,
+                        o_conf_xml_path
+                    )?;
                 }
                 if let Some(group) = &privs.group {
-                    writeln!(out_file, r#"group = "{group}" # Based on <Signer><Privileges><Group> from OpenDNSSEC configuration file {}"#, o_conf_xml_path)?;
+                    writeln!(
+                        out_file,
+                        r#"group = "{group}" # Based on <Signer><Privileges><Group> from OpenDNSSEC configuration file {}"#,
+                        o_conf_xml_path
+                    )?;
                 }
             }
         }
