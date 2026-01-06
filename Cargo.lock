@@ -478,7 +478,7 @@ dependencies = [
 [[package]]
 name = "daemonbase"
 version = "0.1.4"
-source = "git+https://github.com/NLnetLabs/daemonbase?branch=more-pub#46cbb520cf97da00c2124bacb40a33971e3769c5"
+source = "git+https://github.com/NLnetLabs/daemonbase?branch=main#7e46c2792dde6f088f6a7fcc9b510c9e435be3d0"
 dependencies = [
  "chrono",
  "clap",
@@ -1401,9 +1401,10 @@ dependencies = [
 [[package]]
 name = "kmip2pkcs11-cfg"
 version = "0.1.0-alpha"
+source = "git+https://github.com/NLnetLabs/kmip2pkcs11?branch=16-address-config-file-deficiencies#b06c3263a737c69cff72bf1e13c75d2be5d61120"
 dependencies = [
  "clap",
- "daemonbase 0.1.4 (git+https://github.com/NLnetLabs/daemonbase?branch=more-pub)",
+ "daemonbase 0.1.4 (git+https://github.com/NLnetLabs/daemonbase?branch=main)",
  "serde",
  "toml 0.9.8",
  "tracing",
