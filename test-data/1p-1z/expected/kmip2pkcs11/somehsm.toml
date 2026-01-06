@@ -1,1 +1,12 @@
-lib_path = "/path/to/some/pkcs11/module.so"
+version = "v1"
+
+[daemon]
+log-level = "warning"
+log-target = "syslog"
+daemonize = true
+
+[pkcs11]
+lib-path = "/path/to/some/pkcs11/module.so"
+
+[server]
+addr = "127.0.0.1:5696"

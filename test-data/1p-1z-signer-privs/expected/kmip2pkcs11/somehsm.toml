@@ -1,3 +1,13 @@
-lib_path = "/path/to/some/pkcs11/module.so"
-user = "some-user" # Based on <Signer><Privileges><User> from OpenDNSSEC configuration file conf.xml
-group = "some-group" # Based on <Signer><Privileges><Group> from OpenDNSSEC configuration file conf.xml
+version = "v1"
+
+[daemon]
+log-level = "warning"
+log-target = "syslog"
+daemonize = true
+identity = "root:root"
+
+[pkcs11]
+lib-path = "/path/to/some/pkcs11/module.so"
+
+[server]
+addr = "127.0.0.1:5696"
