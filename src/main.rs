@@ -17,7 +17,7 @@ use cascade::policy::{
     ServerPolicy, SignerDenialPolicy, SignerPolicy, SignerSerialPolicy,
 };
 use domain::base::Ttl;
-use kmip2pkcs11_cfg::daemonbase::process::{GroupId, UserId};
+use kmip2pkcs11_cfg::{daemonbase::process::{GroupId, UserId}, v1::LogLevel};
 use quick_xml::DeError;
 use schema::xml::addns::{Adapter, Outbound};
 use schema::xml::conf::Configuration;
@@ -280,6 +280,10 @@ impl Migrator {
             println!("Generating '{out_path}'...");
 
             let mut daemon = kmip2pkcs11_cfg::v1::DaemonConfig::default();
+            daemon.log.level = kmip2pkcs11_cfg::v1::LogLevel::Warning;
+            daemon.log.target = kmip2pkcs11_cfg::v1::LogTarget::Syslog;
+            daemon.daemonize = true;
+
             // TODO: Add chroot support to kmip2pkcs11 and supply privs.directory.
             if let Some(Privileges {
                 user: Some(user),
@@ -292,7 +296,6 @@ impl Migrator {
                 let group_id = GroupId::from_str(group)
                     .map_err(|err| anyhow!("Invalid user id '{user}': {err}"))?;
                 daemon.identity = Some((user_id, group_id));
-                daemon.daemonize = true;
             }
 
             let pkcs11 = kmip2pkcs11_cfg::v1::Pkcs11Config { lib_path };
