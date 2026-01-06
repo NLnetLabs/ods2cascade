@@ -257,7 +257,7 @@ dependencies = [
  "chrono",
  "clap",
  "crossbeam-utils",
- "daemonbase",
+ "daemonbase 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "domain",
  "foldhash",
  "futures",
@@ -465,6 +465,20 @@ name = "daemonbase"
 version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a94994a9b82d9a7dde372a16310c49ba6f07c2eaf7b55016fb217dddf222b13e"
+dependencies = [
+ "chrono",
+ "clap",
+ "log",
+ "nix",
+ "serde",
+ "syslog",
+ "toml_edit 0.23.7",
+]
+
+[[package]]
+name = "daemonbase"
+version = "0.1.4"
+source = "git+https://github.com/NLnetLabs/daemonbase?branch=more-pub#46cbb520cf97da00c2124bacb40a33971e3769c5"
 dependencies = [
  "chrono",
  "clap",
@@ -1385,6 +1399,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "kmip2pkcs11-cfg"
+version = "0.1.0-alpha"
+dependencies = [
+ "clap",
+ "daemonbase 0.1.4 (git+https://github.com/NLnetLabs/daemonbase?branch=more-pub)",
+ "serde",
+ "toml 0.9.8",
+ "tracing",
+]
+
+[[package]]
 name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1616,6 +1641,7 @@ dependencies = [
  "cascade",
  "domain",
  "fs-err",
+ "kmip2pkcs11-cfg",
  "pretty_assertions",
  "quick-xml",
  "sanitize-filename",

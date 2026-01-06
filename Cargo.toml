@@ -10,6 +10,7 @@ atoi              = "2.0.0"
 cascade           = { git = "https://github.com/NLnetLabs/cascade" }
 domain            = { git = "https://github.com/NLnetLabs/domain", branch = "patches-for-nameshed-prototype" } # Use the same domain as cascade
 fs-err            = "3.2.0"
+kmip2pkcs11-cfg   = { git = "https://github.com/NLnetLabs/kmip2pkcs11", branch = "16-address-config-file-deficiencies", version = "0.1.0-alpha" }
 pretty_assertions = "1.4.1"
 quick-xml         = { version = "0.38.3", features = ["serialize"] }
 sanitize-filename = "0.6.0"

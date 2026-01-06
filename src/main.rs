@@ -17,6 +17,7 @@ use cascade::policy::{
     ServerPolicy, SignerDenialPolicy, SignerPolicy, SignerSerialPolicy,
 };
 use domain::base::Ttl;
+use kmip2pkcs11_cfg::daemonbase::process::{GroupId, UserId};
 use quick_xml::DeError;
 use schema::xml::addns::{Adapter, Outbound};
 use schema::xml::conf::Configuration;
@@ -26,11 +27,14 @@ use serde::Deserialize;
 #[cfg(not(test))]
 use sqlx::{Connection, MySqlConnection, SqliteConnection};
 
-use crate::io::{Fs, FsOps};
 use crate::schema::xml::conf::DatastoreEnum;
 #[cfg(not(test))]
 use crate::schema::xml::conf::{Host, Mysql};
 use crate::schema::xml::kasp::SerialEnum;
+use crate::{
+    io::{Fs, FsOps},
+    schema::xml::conf::Privileges,
+};
 
 #[tokio::main]
 async fn main() {
@@ -269,28 +273,39 @@ impl Migrator {
 
         // Generate kmip2pkcs11 configuration fragments.
         for o_repo in &o_conf.repository_list.repositories {
-            let lib_path = &o_repo.module;
+            let lib_path = PathBuf::from_str(&o_repo.module)
+                .map_err(|err| anyhow!("Invalid PKCS#11 module path '{}': {err}", o_repo.module))?;
             let hsm_name = sanitize_filename::sanitize(&o_repo.name);
             let out_path = format!("{k2p_dir}/{hsm_name}.toml");
             println!("Generating '{out_path}'...");
-            let mut out_file = io.create(out_path)?;
-            writeln!(out_file, r#"lib_path = "{lib_path}""#)?;
-            if let Some(privs) = o_conf.signer.as_ref().and_then(|c| c.privs.as_ref()) {
-                if let Some(user) = &privs.user {
-                    writeln!(
-                        out_file,
-                        r#"user = "{user}" # Based on <Signer><Privileges><User> from OpenDNSSEC configuration file {}"#,
-                        o_conf_xml_path
-                    )?;
-                }
-                if let Some(group) = &privs.group {
-                    writeln!(
-                        out_file,
-                        r#"group = "{group}" # Based on <Signer><Privileges><Group> from OpenDNSSEC configuration file {}"#,
-                        o_conf_xml_path
-                    )?;
-                }
+
+            let mut daemon = kmip2pkcs11_cfg::v1::DaemonConfig::default();
+            // TODO: Add chroot support to kmip2pkcs11 and supply privs.directory.
+            if let Some(Privileges {
+                user: Some(user),
+                group: Some(group),
+                ..
+            }) = o_conf.signer.as_ref().and_then(|c| c.privs.as_ref())
+            {
+                let user_id = UserId::from_str(user)
+                    .map_err(|err| anyhow!("Invalid user id '{user}': {err}"))?;
+                let group_id = GroupId::from_str(group)
+                    .map_err(|err| anyhow!("Invalid user id '{user}': {err}"))?;
+                daemon.identity = Some((user_id, group_id));
+                daemon.daemonize = true;
             }
+
+            let pkcs11 = kmip2pkcs11_cfg::v1::Pkcs11Config { lib_path };
+
+            let kmip2pkcs11_conf = kmip2pkcs11_cfg::Config::V1(kmip2pkcs11_cfg::v1::Config {
+                daemon,
+                pkcs11,
+                server: Default::default(),
+            });
+
+            let toml = toml::to_string_pretty(&kmip2pkcs11_conf)?;
+            let mut out_file = io.create(out_path)?;
+            out_file.write_all(toml.as_bytes())?;
         }
 
         // Note: zone_list is the old way of managing zones, more recent versions
