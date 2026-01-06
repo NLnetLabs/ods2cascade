@@ -1401,7 +1401,7 @@ dependencies = [
 [[package]]
 name = "kmip2pkcs11-cfg"
 version = "0.1.0-alpha"
-source = "git+https://github.com/NLnetLabs/kmip2pkcs11?branch=16-address-config-file-deficiencies#b06c3263a737c69cff72bf1e13c75d2be5d61120"
+source = "git+https://github.com/NLnetLabs/kmip2pkcs11?branch=16-address-config-file-deficiencies#1a2b41877b048a6028c8a6032d24bbca43fbe458"
 dependencies = [
  "clap",
  "daemonbase 0.1.4 (git+https://github.com/NLnetLabs/daemonbase?branch=main)",

@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Configuration>
+	<RepositoryList>
+		<Repository name="somehsm">
+  		<Module>/path/to/some/pkcs11/module.so</Module>
+		<TokenLabel>OpenDNSSEC</TokenLabel>
+  		<PIN>1234</PIN>
+		</Repository>
+	</RepositoryList>
+
+	<Common>
+		<PolicyFile>kasp.xml</PolicyFile>
+		<ZoneListFile>zonelist.xml</ZoneListFile>
+	</Common>
+
+	<Enforcer>
+		<Datastore><SQLite>/data/home/ximon/Documents/laptop-backup/home/Documents/laptop-restore/home/ximon/Documents/code/opendnssec/upgrade-ns.nlnetlabs.nl/backup/var/opendnssec/kasp.db</SQLite></Datastore>
+		<!-- Set an empty working directory to override the default /var/opendnssec/tmp -->
+		<WorkingDirectory/>
+	</Enforcer>
+
+  <Signer>
+  	<Privileges>
+  		<!-- The user must actually exist otherwise daemonbase will refuse it when
+           serializing the kmip2pkcs11 config file, so use user 'root' which
+           must always exit. -->
+  		<User>root</User>
+  	</Privileges>
+  </Signer>
+</Configuration>

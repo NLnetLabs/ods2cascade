@@ -287,14 +287,15 @@ impl Migrator {
             // TODO: Add chroot support to kmip2pkcs11 and supply privs.directory.
             if let Some(Privileges {
                 user: Some(user),
-                group: Some(group),
+                group,
                 ..
             }) = o_conf.signer.as_ref().and_then(|c| c.privs.as_ref())
             {
                 let user_id = UserId::from_str(user)
                     .map_err(|err| anyhow!("Invalid user id '{user}': {err}"))?;
+                let group = group.as_ref().unwrap_or(user);
                 let group_id = GroupId::from_str(group)
-                    .map_err(|err| anyhow!("Invalid user id '{user}': {err}"))?;
+                    .map_err(|err| anyhow!("Invalid group id '{group}': {err}"))?;
                 daemon.identity = Some((user_id, group_id));
             }
 
@@ -930,8 +931,14 @@ mod test {
     }
 
     #[tokio::test]
+    async fn kmip2pkcs11_should_use_same_user_and_group_as_ods_signer() -> anyhow::Result<()> {
+        run_test("1p-1z-signer-privs-user-and-group").await?;
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn kmip2pkcs11_should_use_same_user_as_ods_signer() -> anyhow::Result<()> {
-        run_test("1p-1z-signer-privs").await?;
+        run_test("1p-1z-signer-privs-user-only").await?;
         Ok(())
     }
 
