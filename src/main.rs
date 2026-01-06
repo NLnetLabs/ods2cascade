@@ -17,10 +17,7 @@ use cascade::policy::{
     ServerPolicy, SignerDenialPolicy, SignerPolicy, SignerSerialPolicy,
 };
 use domain::base::Ttl;
-use kmip2pkcs11_cfg::{
-    daemonbase::process::{GroupId, UserId},
-    v1::LogLevel,
-};
+use kmip2pkcs11_cfg::daemonbase::process::{GroupId, UserId};
 use quick_xml::DeError;
 use schema::xml::addns::{Adapter, Outbound};
 use schema::xml::conf::Configuration;
