@@ -174,6 +174,10 @@ impl Migrator {
         // ODS zone name -> ODS signed zone output path
         let _o_signed_zone_output_paths_by_zone_name = BTreeMap::<String, String>::new();
 
+        // Does ODS have at least one zone which it writes to disk rather than
+        // serves via XFR?
+        let mut o_writes_signed_zones_to_disk = false;
+
         // So for each combination of ODS policy and zone output adapter we need
         // a different Cascade policy.
         //
@@ -235,8 +239,9 @@ impl Migrator {
         })
         .or_else(|| {
             // This zone was NOT configured in ODS with zone transfer settings
-            // and so it must be a
+            // and so it must be written by ODS to disk when signed.
             // Remember the Cascade policy name for this ODS policy name.
+            o_writes_signed_zones_to_disk = true;
             let o_pol_name = o_zone.policy.clone();
             let o_pol_name = sanitize_filename::sanitize(o_pol_name);
             let key = (o_pol_name.clone(), None);
@@ -461,19 +466,32 @@ impl Migrator {
             // TODO: This is brittle as it assumes what the TOML for the
             // Cascade config file should look like, but we can't do better at
             // present, see PR #36 for more info.
-            let mut step_text = format!(
-                "Configure Cascade to publish on the same interfaces as the OpenDNSSEC Signer by setting [server].servers in {c_conf_toml_path} to:\n"
-            );
-            step_text += "      [server]\n";
-            step_text += &format!("      servers = [{servers}]");
-            p.print_step(step_text);
-        } else {
-            // OpenDNSSEC was not configured to serve XFR. It must therefore have
-            // been writing signed zones to files on disk.
-            p.print_step("Deploy a secondary nameserver or use some other tool to retrieve signed zones via XFR and write them to disk. This is needed because your OpenDNSSEC instance writes signed zones to disk which Cascade is not yet able to do.");
+            p.print_step(&[
+                &format!("Configure Cascade to publish on the same interfaces as the OpenDNSSEC Signer by setting [server].servers in {c_conf_toml_path} to:"),
+                &"  [server]".to_string(),
+                &format!("  servers = [{servers}]")
+            ]);
         }
 
-        p.print_step("Stop OpenDNSSEC: ods-control stop");
+        if o_writes_signed_zones_to_disk {
+            // OpenDNSSEC was not configured to serve XFR. It must therefore have
+            // been writing signed zones to files on disk.
+            p.print_step(&[
+                "Deploy a secondary nameserver or use some other tool to retrieve signed zones via XFR and write them to disk.",
+                "This is needed because your OpenDNSSEC instance writes signed zones to disk which Cascade is not yet able to do."]);
+        }
+
+        p.print_step(&[
+            "Validate your Cascade configuration.",
+            &format!("sudo cascaded -c {c_conf_toml_path} --check-config"),
+        ]);
+        p.print_step(&["Stop OpenDNSSEC.", "sudo ods-control stop"]);
+        p.print_step(&[
+            "Start Cascade.",
+            "sudo systemctl start cascaded",
+            "OR",
+            &format!("sudo cascaded -c {c_conf_toml_path} --state /path/to/some/cascade.state"),
+        ]);
 
         Ok(())
     }
@@ -488,8 +506,12 @@ impl StepPrinter {
         Self { step_idx: 1 }
     }
 
-    fn print_step<T: Display>(&mut self, msg: T) {
-        println!("  {}. {msg}", self.step_idx);
+    fn print_step(&mut self, msg: &[impl Display]) {
+        println!("  {}. {}", self.step_idx, msg[0]);
+        for msg in &msg[1..] {
+            println!("     {msg}");
+        }
+        println!();
         self.step_idx += 1;
     }
 }
@@ -502,6 +524,7 @@ fn process_adapter<IO: FsOps>(
     match adapter._type.as_str() {
         "File" => {
             // Zone file, do not load it.
+            Ok(None)
         }
         "DNS" => {
             // addns.xml, load it.
@@ -512,11 +535,10 @@ fn process_adapter<IO: FsOps>(
                 let adapter: Adapter = process_xml(&xml)?;
                 addns_paths_to_adapters.insert(path.clone(), adapter);
             }
-            return Ok(Some(path));
+            Ok(Some(path))
         }
-        other => panic!("Unsupported adapter type '{other}'"),
+        other => Err(anyhow!("Unsupported adapter type '{other}'")),
     }
-    Ok(None)
 }
 
 fn process_xml<'de, T: Deserialize<'de>>(xml: &'de str) -> Result<T, DeError> {
