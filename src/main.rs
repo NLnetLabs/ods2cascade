@@ -42,6 +42,8 @@ async fn main() {
         eprintln!(
             "Usage: {prog_name} <path/to/cascade.toml> <path/to/opendnssec/conf.xml> <path/to/write/files/to>"
         );
+        eprintln!();
+        eprintln!("NOTE: This tool will NOT modify your existing OpenDNSSEC or Cascade installation.");
         std::process::exit(1);
     }
 
@@ -96,6 +98,29 @@ impl Migrator {
         output_dir_path: &str,
         io: &IO,
     ) -> anyhow::Result<()> {
+        println!("Welcome to ods2cascade.");
+        println!();
+        println!(
+            "This tool will generate files and instructions that you can use to configure Cascade to match the setup of an existing OpenDNSSEC deployment."
+        );
+        println!();
+        println!(
+            "NOTE: This tool will NOT modify your existing OpenDNSSEC or Cascade installation."
+        );
+        println!();
+        println!("Provided inputs:");
+        println!("  - OpenDNSSEC config file: {o_conf_xml_path}");
+        println!("  - Cascade config file   : {c_conf_toml_path}");
+        println!("  - Output directory      : {output_dir_path}");
+        println!();
+
+        let mut terminal = terminal_prompt::Terminal::open()?;
+        let res = terminal
+            .prompt("Do you wish to start gathering data and generating outputs? [yes/no] ")?;
+        if res != "yes" {
+            bail!("Aborting because 'yes' was not entered.");
+        }
+
         if io.exists(output_dir_path)? {
             bail!(std::io::Error::new(
                 std::io::ErrorKind::AlreadyExists,
@@ -445,9 +470,14 @@ impl Migrator {
         }
 
         println!();
-        println!("Preparations complete.");
+        println!("Gathering of inputs and generation of outputs is complete.");
         println!();
-        println!("Next steps:");
+        println!("To complete the migration you need to perform the following manual steps:");
+        println!();
+        println!("--------------------------------------------------------------------------------------");
+        println!("WARNING: By following these steps you WILL shutdown your existing OpenDNSSEC instance!");
+        println!("--------------------------------------------------------------------------------------");
+        println!();
 
         let mut p = StepPrinter::new();
 
