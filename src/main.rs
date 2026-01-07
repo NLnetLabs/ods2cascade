@@ -286,14 +286,6 @@ impl Migrator {
         // Note: zone_list is the old way of managing zones, more recent versions
         // of OpenDNSSEC prefer to manage zones in the database.
 
-        // TODO: Create an add hsm command based on config.
-        // TODO: Create policies based on conf.common.policy.
-        // TODO: Create a policy for each policy referred to by zones in zone_list.
-        // TODO: Create a zone for each zone in zone_list with the right policy.
-        // NOTE: All policies should reference the hsm created based on config above.
-        // for each Cascade policy to generate, generate it based on a given ODS
-        // KASP and addns.
-
         // Generate Cascade policies based on ODS policy and optional addns.xml
         // output adapter.
         for ((o_pol_name, addns_path), c_pol_name) in &c_pol_name_by_o_pol_name_plus_addns_path {
@@ -390,7 +382,7 @@ impl Migrator {
         // Output `cascade` commands for the user to run.
         println!("Generating '{output_dir_path}/commands.sh'...");
         let cmd_file_path = format!("{output_dir_path}/commands.sh");
-        let mut cmd_file = io.create(cmd_file_path)?;
+        let mut cmd_file = io.create(&cmd_file_path)?;
 
         for c_pol_name in c_pol_by_c_pol_name.keys() {
             writeln!(
@@ -434,7 +426,7 @@ impl Migrator {
         drop(cmd_file);
 
         // Collect publication interfaces used by OpenDNSSEC.
-        let mut servers = None;
+        let mut o_signer_interfaces = None;
 
         if let Some(interfaces) = o_conf
             .signer
@@ -445,11 +437,10 @@ impl Migrator {
                 .iter()
                 .filter(|i| !i.address.is_empty())
                 .map(|i| format!("{}:{}", i.address, i.port))
-                .collect::<Vec<String>>()
-                .join(",");
+                .collect::<Vec<String>>();
 
             if !non_empty_interfaces.is_empty() {
-                servers = Some(non_empty_interfaces);
+                o_signer_interfaces = Some(non_empty_interfaces);
             }
         }
 
@@ -462,14 +453,35 @@ impl Migrator {
 
         // Notify the user of any Cascade config changes they need to make.
         // TODO: Use https://github.com/NLnetLabs/ods2cascade/pull/36 when/if ready.
-        if let Some(servers) = servers {
-            // TODO: This is brittle as it assumes what the TOML for the
-            // Cascade config file should look like, but we can't do better at
-            // present, see PR #36 for more info.
+        if let Some(o_signer_interfaces) = o_signer_interfaces {
+            let mut different = c_conf.server.servers.len() == o_signer_interfaces.len();
+
+            // Determine if the user has already correctly configured
+            // Cascade to match the listener settings of OpenDNSSEC.
+            if !different {
+                for c_server in c_conf.server.servers {
+                    let c_server = c_server.addr().to_string();
+                    if !o_signer_interfaces.contains(&c_server) {
+                        different = true;
+                        break;
+                    }
+                }
+            }
+
+            if different {
+                // TODO: This is brittle as it assumes what the TOML for the
+                // Cascade config file should look like, but we can't do better at
+                // present, see PR #36 for more info.
+                p.print_step(&[
+                    &format!("Configure Cascade to publish on the same interfaces as the OpenDNSSEC Signer by setting [server].servers in {c_conf_toml_path} to:"),
+                    &"  [server]".to_string(),
+                    &format!("  servers = [{}]", o_signer_interfaces.join(","))
+                ]);
+            }
+        } else if c_conf.server.servers.is_empty() {
             p.print_step(&[
-                &format!("Configure Cascade to publish on the same interfaces as the OpenDNSSEC Signer by setting [server].servers in {c_conf_toml_path} to:"),
-                &"  [server]".to_string(),
-                &format!("  servers = [{servers}]")
+                &format!("Configure Cascade to publish on a UDP+TCP interface by setting [server].servers in {c_conf_toml_path}."),
+                &"This is needed because unlike OpenDNSSEC, Cascade always makes signed zones available via XFR for secondary nameservers.".to_string(),
             ]);
         }
 
@@ -485,12 +497,25 @@ impl Migrator {
             "Validate your Cascade configuration.",
             &format!("sudo cascaded -c {c_conf_toml_path} --check-config"),
         ]);
+
         p.print_step(&["Stop OpenDNSSEC.", "sudo ods-control stop"]);
+
+        // At the time of writing --state is required
         p.print_step(&[
             "Start Cascade.",
             "sudo systemctl start cascaded",
             "OR",
-            &format!("sudo cascaded -c {c_conf_toml_path} --state /path/to/some/cascade.state"),
+            &format!("sudo cascaded -c {c_conf_toml_path}"),
+        ]);
+
+        p.print_step(&[
+            &"Review the generated commands that will be used to configure Cascade.".to_string(),
+            &format!("less {cmd_file_path}"),
+        ]);
+
+        p.print_step(&[
+            &"Execute the generated commands to configure Cascade.".to_string(),
+            &format!("sh -ex {cmd_file_path}"),
         ]);
 
         Ok(())
