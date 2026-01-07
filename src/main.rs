@@ -3,6 +3,7 @@ mod schema;
 
 use std::{
     collections::BTreeMap,
+    fmt::Display,
     hash::{Hash, Hasher},
     io::Write,
     net::{IpAddr, SocketAddr},
@@ -155,7 +156,7 @@ impl Migrator {
         // Verify that we can connect to the Enforcer database.
         let mut conn = DbConn::new(&o_conf.enforcer.datastore.datastore).await?;
         let db_version = conn.db_version().await?;
-        println!("Enforcer database version: {}", db_version.version);
+        println!("Found Enforcer database version: {}", db_version.version);
 
         // (ODS policy name, ODS addns path) -> Cascade policy name
         let mut c_pol_name_by_o_pol_name_plus_addns_path =
@@ -291,7 +292,7 @@ impl Migrator {
         // Generate Cascade policies based on ODS policy and optional addns.xml
         // output adapter.
         for ((o_pol_name, addns_path), c_pol_name) in &c_pol_name_by_o_pol_name_plus_addns_path {
-            print!("Creating Cascade policy '{c_pol_name}' from ODS KASP '{o_pol_name}'");
+            print!("Creating Cascade policy '{c_pol_name}' from ODS KASP '{o_pol_name}'...");
             if let Some(addns_path) = &addns_path {
                 print!(" and ODS ADDNS '{addns_path}'");
             }
@@ -352,7 +353,7 @@ impl Migrator {
 
             let hsm_server_id = if o_repo.module.to_lowercase().contains("softhsm") {
                 println!(
-                    "Note: Future keys for policy '{o_pol_name}' will be generated on-disk instead of using SoftHSM as they are equally secure but much faster when signing."
+                    "  NOTE: Future keys for policy '{o_pol_name}' will be generated on-disk instead of using SoftHSM as they are equally secure but much faster when signing."
                 );
                 None
             } else {
@@ -427,34 +428,69 @@ impl Migrator {
         }
         drop(cmd_file);
 
+        // Collect publication interfaces used by OpenDNSSEC.
+        let mut servers = None;
+
+        if let Some(interfaces) = o_conf
+            .signer
+            .as_ref()
+            .map(|signer| &signer.listener.interfaces)
+        {
+            let non_empty_interfaces = interfaces
+                .iter()
+                .filter(|i| !i.address.is_empty())
+                .map(|i| format!("{}:{}", i.address, i.port))
+                .collect::<Vec<String>>()
+                .join(",");
+
+            if !non_empty_interfaces.is_empty() {
+                servers = Some(non_empty_interfaces);
+            }
+        }
+
         println!();
         println!("Preparations complete.");
         println!();
         println!("Next steps:");
-        println!("  - Stop OpenDNSSEC: ods-control stop");
-        if let Some(ref pub_interfaces) = o_conf
-            .signer
-            .map(|s| s.listener.interfaces)
-            .and_then(|i| (!i.is_empty()).then_some(i))
-        {
-            println!("  - Configure Cascade to publish on the same interfaces");
-            println!("    as the OpenDNSSEC Signer by setting [server].servers");
-            println!("    in {c_conf_toml_path} to:");
-            println!();
-            let servers = pub_interfaces
-                .iter()
-                .map(|i| format!("{}:{}", i.address, i.port))
-                .collect::<Vec<String>>()
-                .join(",");
-            print!("      servers = [{servers}]");
+
+        let mut p = StepPrinter::new();
+
+        // Notify the user of any Cascade config changes they need to make.
+        // TODO: Use https://github.com/NLnetLabs/ods2cascade/pull/36 when/if ready.
+        if let Some(servers) = servers {
+            // TODO: This is brittle as it assumes what the TOML for the
+            // Cascade config file should look like, but we can't do better at
+            // present, see PR #36 for more info.
+            let mut step_text = format!(
+                "Configure Cascade to publish on the same interfaces as the OpenDNSSEC Signer by setting [server].servers in {c_conf_toml_path} to:\n"
+            );
+            step_text += "      [server]\n";
+            step_text += &format!("      servers = [{servers}]");
+            p.print_step(step_text);
         } else {
             // OpenDNSSEC was not configured to serve XFR. It must therefore have
             // been writing signed zones to files on disk.
-            println!("  - Alter TODO")
+            p.print_step("Deploy a secondary nameserver or use some other tool to retrieve signed zones via XFR and write them to disk. This is needed because your OpenDNSSEC instance writes signed zones to disk which Cascade is not yet able to do.");
         }
-        println!("  - (optional) Configure Cascade to publish on the same ");
+
+        p.print_step("Stop OpenDNSSEC: ods-control stop");
 
         Ok(())
+    }
+}
+
+struct StepPrinter {
+    step_idx: usize,
+}
+
+impl StepPrinter {
+    fn new() -> Self {
+        Self { step_idx: 1 }
+    }
+
+    fn print_step<T: Display>(&mut self, msg: T) {
+        println!("  {}. {msg}", self.step_idx);
+        self.step_idx += 1;
     }
 }
 
