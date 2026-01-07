@@ -196,20 +196,11 @@ pub mod conf {
         sqlite(Sqlite),
     }
 
-    #[derive(Debug, Deserialize)]
+    #[derive(Debug, Default, Deserialize)]
     #[serde(rename_all = "PascalCase")]
     pub struct Listener {
         #[serde(default)]
         pub interfaces: Vec<Interface>,
-    }
-
-    impl Default for Listener {
-        fn default() -> Self {
-            Self {
-                // From OpenDNSSEC conf.rnc
-                interfaces: vec![Interface::new("".to_string(), 15534)],
-            }
-        }
     }
 
     #[derive(Debug, Deserialize)]
