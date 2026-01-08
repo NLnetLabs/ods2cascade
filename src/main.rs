@@ -57,7 +57,7 @@ async fn main() {
     let o_conf_xml_path = args.next().unwrap();
     let output_dir_path = args.next().unwrap();
 
-    if let Err(err) = Migrator::migrate(
+    if let Err(err) = Migrator::migrate::<_, RealTerm>(
         &c_conf_toml_path,
         &o_conf_xml_path,
         &output_dir_path,
@@ -98,7 +98,7 @@ impl std::error::Error for MigrateError {}
 struct Migrator;
 
 impl Migrator {
-    async fn migrate<IO: FsOps>(
+    async fn migrate<IO: FsOps, TERM: Term>(
         c_conf_toml_path: &str,
         o_conf_xml_path: &str,
         output_dir_path: &str,
@@ -127,7 +127,7 @@ impl Migrator {
             ));
         }
 
-        let mut terminal = terminal_prompt::Terminal::open()?;
+        let mut terminal = TERM::open()?;
 
         wait_for_enter(&mut terminal, "to continue")?;
 
@@ -563,8 +563,8 @@ impl Migrator {
     }
 
     #[allow(clippy::too_many_arguments)]
-    async fn do_steps(
-        terminal: &mut terminal_prompt::Terminal,
+    async fn do_steps<TERM: Term>(
+        terminal: &mut TERM,
         review_mode: bool,
         c_conf: &cascade::config::Config,
         c_conf_toml_path: &str,
@@ -634,15 +634,14 @@ impl Migrator {
         p.println("Copy the kmi2pkcs11 configuration files to the proper location:");
         if k2p_conf_paths.len() > 1 {
             p.println("NOTE: This should be a location that the kmip2pkcs11 instances will have read access to.");
-        } else {
-            let signer = o_conf.signer.as_ref().unwrap();
+        } else if let Some(signer) = o_conf.signer.as_ref() {
             if let Some(Privileges {
                 user: Some(user), ..
             }) = &signer.privileges
             {
                 p.println(format!(
-                "NOTE: Your kmip2pkcs11 instance will run as user '{user}' thus the kmip2pkcs11 configuration file should be readable by this user."
-            ));
+                    "NOTE: Your kmip2pkcs11 instance will run as user '{user}' thus the kmip2pkcs11 configuration file should be readable by this user."
+                ));
             }
         }
         p.cmd(format!("sudo cp {k2p_dir}/*.toml /etc/kmip2pkcs11/"));
@@ -703,15 +702,15 @@ impl Migrator {
     }
 }
 
-struct StepPrinter<'a> {
+struct StepPrinter<'a, TERM: Term> {
     step_idx: usize,
     step_start: bool,
-    terminal: &'a mut terminal_prompt::Terminal,
+    terminal: &'a mut TERM,
     review_mode: bool,
 }
 
-impl<'a> StepPrinter<'a> {
-    fn new(terminal: &'a mut terminal_prompt::Terminal, review_mode: bool) -> Self {
+impl<'a, TERM: Term> StepPrinter<'a, TERM> {
+    fn new(terminal: &'a mut TERM, review_mode: bool) -> Self {
         Self {
             step_idx: 1,
             step_start: true,
@@ -761,15 +760,12 @@ impl<'a> StepPrinter<'a> {
     }
 }
 
-fn wait_for_enter<T: Display>(
-    terminal: &mut terminal_prompt::Terminal,
-    msg: T,
-) -> std::io::Result<()> {
+fn wait_for_enter<TERM: Term, T: Display>(terminal: &mut TERM, msg: T) -> std::io::Result<()> {
     let _ = terminal.prompt(format!("Press ENTER {msg}."))?;
     Ok(())
 }
 
-fn ask<T: Display>(terminal: &mut terminal_prompt::Terminal, msg: T) -> std::io::Result<String> {
+fn ask<TERM: Term, T: Display>(terminal: &mut TERM, msg: T) -> std::io::Result<String> {
     loop {
         let res = terminal.prompt(format!("{msg} [yes/no] "))?;
         match res.as_str() {
@@ -779,7 +775,7 @@ fn ask<T: Display>(terminal: &mut terminal_prompt::Terminal, msg: T) -> std::io:
     }
 }
 
-fn confirm<T: Display>(terminal: &mut terminal_prompt::Terminal, msg: T) -> anyhow::Result<()> {
+fn confirm<TERM: Term, T: Display>(terminal: &mut TERM, msg: T) -> anyhow::Result<()> {
     if ask(
         terminal,
         format!("{msg}\nPlease confirm that you understand."),
@@ -1166,6 +1162,29 @@ impl DbConn {
 //     .await?;
 // dbg!(policy_keys);
 
+trait Term {
+    type T: Term;
+    fn open() -> std::io::Result<Self::T>;
+    fn prompt(&mut self, prompt: impl Display) -> std::io::Result<String>;
+}
+
+struct RealTerm {
+    terminal: terminal_prompt::Terminal,
+}
+
+impl Term for RealTerm {
+    type T = Self;
+    fn open() -> std::io::Result<Self> {
+        Ok(Self {
+            terminal: terminal_prompt::Terminal::open()?,
+        })
+    }
+
+    fn prompt(&mut self, prompt: impl Display) -> std::io::Result<String> {
+        self.terminal.prompt(prompt)
+    }
+}
+
 #[cfg(test)]
 mod test {
     use std::{
@@ -1178,7 +1197,7 @@ mod test {
     use pretty_assertions::assert_eq;
 
     use crate::{
-        MigrateError, Migrator,
+        MigrateError, Migrator, Term,
         io::{Fs, FsOps},
     };
 
@@ -1189,7 +1208,7 @@ mod test {
         let io = Fs::new();
         io.register_dir("out");
 
-        let res = Migrator::migrate("conf.toml", "conf.xml", "out", &io).await;
+        let res = Migrator::migrate::<_, MockTerm>("conf.toml", "conf.xml", "out", &io).await;
         let v = to_inner_err::<_, std::io::Error>(res);
         assert_eq!(v.kind(), std::io::ErrorKind::AlreadyExists);
     }
@@ -1266,7 +1285,7 @@ mod test {
         }
 
         // Run the migration.
-        Migrator::migrate("conf.toml", "conf.xml", "out", &io).await?;
+        Migrator::migrate::<_, MockTerm>("conf.toml", "conf.xml", "out", &io).await?;
 
         // Verify the expected outputs
         let mut expected_paths = HashSet::new();
@@ -1348,5 +1367,20 @@ mod test {
         let inner_err = err.downcast::<E>();
         assert!(inner_err.is_ok());
         inner_err.unwrap()
+    }
+
+    //-------- Helper types --------------------------------------------------
+
+    struct MockTerm;
+
+    impl Term for MockTerm {
+        type T = Self;
+        fn open() -> std::io::Result<Self> {
+            Ok(Self)
+        }
+
+        fn prompt(&mut self, _prompt: impl Display) -> std::io::Result<String> {
+            Ok("yes".to_string())
+        }
     }
 }
