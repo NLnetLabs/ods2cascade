@@ -3,10 +3,11 @@ mod schema;
 
 use std::{
     collections::BTreeMap,
+    fmt::Display,
     hash::{Hash, Hasher},
     io::Write,
     net::{IpAddr, SocketAddr},
-    path::PathBuf,
+    path::{Path, PathBuf},
     str::FromStr,
 };
 
@@ -44,6 +45,10 @@ async fn main() {
     if args.len() != 3 {
         eprintln!(
             "Usage: {prog_name} <path/to/cascade.toml> <path/to/opendnssec/conf.xml> <path/to/write/files/to>"
+        );
+        eprintln!();
+        eprintln!(
+            "NOTE: This tool will NOT modify your existing OpenDNSSEC or Cascade installation."
         );
         std::process::exit(1);
     }
@@ -99,12 +104,36 @@ impl Migrator {
         output_dir_path: &str,
         io: &IO,
     ) -> anyhow::Result<()> {
+        println!("Welcome to ods2cascade.");
+        println!();
+        println!(
+            "This tool will generate files and instructions that you can use to configure Cascade to match the setup of an existing OpenDNSSEC deployment."
+        );
+        println!();
+        println!(
+            "NOTE: This tool will NOT modify your existing OpenDNSSEC or Cascade installation."
+        );
+        println!();
+        println!("Provided inputs:");
+        println!("  - OpenDNSSEC config file: {o_conf_xml_path}");
+        println!("  - Cascade config file   : {c_conf_toml_path}");
+        println!("  - Output directory      : {output_dir_path}");
+        println!();
+
         if io.exists(output_dir_path)? {
             bail!(std::io::Error::new(
                 std::io::ErrorKind::AlreadyExists,
                 format!("Output directory '{output_dir_path}' already exists"),
             ));
         }
+
+        let mut terminal = terminal_prompt::Terminal::open()?;
+
+        wait_for_enter(&mut terminal, "to continue")?;
+
+        println!();
+        println!("Gathering inputs and generating outputs:");
+        println!();
 
         let dbg_dir = format!("{output_dir_path}/debug");
         let k2p_dir = format!("{output_dir_path}/kmip2pkcs11");
@@ -159,7 +188,7 @@ impl Migrator {
         // Verify that we can connect to the Enforcer database.
         let mut conn = DbConn::new(&o_conf.enforcer.datastore.datastore).await?;
         let db_version = conn.db_version().await?;
-        println!("Enforcer database version: {}", db_version.version);
+        println!("Found Enforcer database version: {}", db_version.version);
 
         // (ODS policy name, ODS addns path) -> Cascade policy name
         let mut c_pol_name_by_o_pol_name_plus_addns_path =
@@ -176,6 +205,10 @@ impl Migrator {
 
         // ODS zone name -> ODS signed zone output path
         let _o_signed_zone_output_paths_by_zone_name = BTreeMap::<String, String>::new();
+
+        // Does ODS have at least one zone which it writes to disk rather than
+        // serves via XFR?
+        let mut o_writes_signed_zones_to_disk = false;
 
         // So for each combination of ODS policy and zone output adapter we need
         // a different Cascade policy.
@@ -238,8 +271,9 @@ impl Migrator {
         })
         .or_else(|| {
             // This zone was NOT configured in ODS with zone transfer settings
-            // and so it must be a
+            // and so it must be written by ODS to disk when signed.
             // Remember the Cascade policy name for this ODS policy name.
+            o_writes_signed_zones_to_disk = true;
             let o_pol_name = o_zone.policy.clone();
             let o_pol_name = sanitize_filename::sanitize(o_pol_name);
             let key = (o_pol_name.clone(), None);
@@ -272,6 +306,7 @@ impl Migrator {
         )?;
 
         // Generate kmip2pkcs11 configuration fragments.
+        let mut k2p_conf_paths = vec![];
         for o_repo in &o_conf.repository_list.repositories {
             let lib_path = PathBuf::from_str(&o_repo.module)
                 .map_err(|err| anyhow!("Invalid PKCS#11 module path '{}': {err}", o_repo.module))?;
@@ -284,12 +319,12 @@ impl Migrator {
             daemon.log.target = kmip2pkcs11_cfg::v1::LogTarget::Syslog;
             daemon.daemonize = true;
 
-            // TODO: Add chroot support to kmip2pkcs11 and supply privs.directory.
+            // TODO: Add chroot support to kmip2pkcs11 and supply privileges.directory.
             if let Some(Privileges {
                 user: Some(user),
                 group,
                 ..
-            }) = o_conf.signer.as_ref().and_then(|c| c.privs.as_ref())
+            }) = o_conf.signer.as_ref().and_then(|c| c.privileges.as_ref())
             {
                 let user_id = UserId::from_str(user)
                     .map_err(|err| anyhow!("Invalid user id '{user}': {err}"))?;
@@ -308,25 +343,18 @@ impl Migrator {
             });
 
             let toml = toml::to_string_pretty(&kmip2pkcs11_conf)?;
-            let mut out_file = io.create(out_path)?;
+            let mut out_file = io.create(&out_path)?;
             out_file.write_all(toml.as_bytes())?;
+            k2p_conf_paths.push(out_path);
         }
 
         // Note: zone_list is the old way of managing zones, more recent versions
         // of OpenDNSSEC prefer to manage zones in the database.
 
-        // TODO: Create an add hsm command based on config.
-        // TODO: Create policies based on conf.common.policy.
-        // TODO: Create a policy for each policy referred to by zones in zone_list.
-        // TODO: Create a zone for each zone in zone_list with the right policy.
-        // NOTE: All policies should reference the hsm created based on config above.
-        // for each Cascade policy to generate, generate it based on a given ODS
-        // KASP and addns.
-
         // Generate Cascade policies based on ODS policy and optional addns.xml
         // output adapter.
         for ((o_pol_name, addns_path), c_pol_name) in &c_pol_name_by_o_pol_name_plus_addns_path {
-            print!("Creating Cascade policy '{c_pol_name}' from ODS KASP '{o_pol_name}'");
+            print!("Creating Cascade policy '{c_pol_name}' from ODS KASP '{o_pol_name}'...");
             if let Some(addns_path) = &addns_path {
                 print!(" and ODS ADDNS '{addns_path}'");
             }
@@ -387,7 +415,7 @@ impl Migrator {
 
             let hsm_server_id = if o_repo.module.to_lowercase().contains("softhsm") {
                 println!(
-                    "Note: Future keys for policy '{o_pol_name}' will be generated on-disk instead of using SoftHSM as they are equally secure but much faster when signing."
+                    "  NOTE: Future keys for policy '{o_pol_name}' will be generated on-disk instead of using SoftHSM as they are equally secure but much faster when signing."
                 );
                 None
             } else {
@@ -419,12 +447,12 @@ impl Migrator {
         // Output `cascade` commands for the user to run.
         println!("Generating '{output_dir_path}/commands.sh'...");
         let cmd_file_path = format!("{output_dir_path}/commands.sh");
-        let mut cmd_file = io.create(cmd_file_path)?;
+        let mut cmd_file = io.create(&cmd_file_path)?;
 
         for c_pol_name in c_pol_by_c_pol_name.keys() {
             writeln!(
                 cmd_file,
-                "cp {output_dir_path}/policies/{c_pol_name}.toml {c_pol_dir}/"
+                "sudo cp {output_dir_path}/policies/{c_pol_name}.toml {c_pol_dir}/"
             )?;
         }
         writeln!(cmd_file, "cascade {c_cli_args} policy reload")?;
@@ -462,35 +490,304 @@ impl Migrator {
         }
         drop(cmd_file);
 
-        println!();
-        println!("Preparations complete.");
-        println!();
-        println!("Next steps:");
-        println!("  - Stop OpenDNSSEC: ods-control stop");
-        if let Some(ref pub_interfaces) = o_conf
+        // Collect publication interfaces used by OpenDNSSEC.
+        let mut o_signer_interfaces = None;
+
+        if let Some(interfaces) = o_conf
             .signer
-            .map(|s| s.listener.interfaces)
-            .and_then(|i| (!i.is_empty()).then_some(i))
+            .as_ref()
+            .map(|signer| &signer.listener.interfaces)
         {
-            println!("  - Configure Cascade to publish on the same interfaces");
-            println!("    as the OpenDNSSEC Signer by setting [server].servers");
-            println!("    in {c_conf_toml_path} to:");
-            println!();
-            let servers = pub_interfaces
+            let non_empty_interfaces = interfaces
                 .iter()
+                .filter(|i| !i.address.is_empty())
                 .map(|i| format!("{}:{}", i.address, i.port))
-                .collect::<Vec<String>>()
-                .join(",");
-            print!("      servers = [{servers}]");
-        } else {
-            // OpenDNSSEC was not configured to serve XFR. It must therefore have
-            // been writing signed zones to files on disk.
-            println!("  - Alter TODO")
+                .collect::<Vec<String>>();
+
+            if !non_empty_interfaces.is_empty() {
+                o_signer_interfaces = Some(non_empty_interfaces);
+            }
         }
-        println!("  - (optional) Configure Cascade to publish on the same ");
+
+        println!();
+        println!("Gathering of inputs and generation of outputs is complete.");
+        println!();
+        println!("Next you will need to perform a sequence of manual steps.");
+        println!();
+        println!("---------");
+        println!(
+            "REMINDER: This tool will NOT make changes to your system itself. Only the commands you execute yourself will make changes to your system."
+        );
+        println!("---------");
+        println!();
+
+        let res = ask(
+            &mut terminal,
+            "Would you first like to preview the complete set of steps before working through them one at a time?",
+        )?;
+        let mut preview_mode = res == "yes";
+        loop {
+            if preview_mode {
+                println!();
+                println!("*** STARTING PREVIEW ***");
+            }
+
+            Self::do_steps(
+                &mut terminal,
+                preview_mode,
+                &c_conf,
+                c_conf_toml_path,
+                &o_conf,
+                &cmd_file_path,
+                &o_signer_interfaces,
+                o_writes_signed_zones_to_disk,
+                &k2p_dir,
+                &k2p_conf_paths,
+            )
+            .await?;
+
+            if preview_mode {
+                preview_mode = false;
+                println!();
+                println!("*** PREVIEW FINISHED ***");
+            } else {
+                break;
+            }
+        }
+
+        println!(
+            "Migration complete. Assuming that you were able to perform each of the steps correctly your Cascade instance should now be signing and serving the zones that were being handled before by OpenDNSSEC."
+        );
 
         Ok(())
     }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn do_steps(
+        terminal: &mut terminal_prompt::Terminal,
+        review_mode: bool,
+        c_conf: &cascade::config::Config,
+        c_conf_toml_path: &str,
+        o_conf: &Configuration,
+        cmd_file_path: &str,
+        o_signer_interfaces: &Option<Vec<String>>,
+        o_writes_signed_zones_to_disk: bool,
+        k2p_dir: &str,
+        k2p_conf_paths: &[String],
+    ) -> anyhow::Result<()> {
+        let mut p = StepPrinter::new(terminal, review_mode);
+
+        p.require_confirmation("WARNING: The commands that will be shown next are examples only and require your review and may need editing.")?;
+
+        if !review_mode {
+            println!();
+        }
+
+        // Notify the user of any Cascade config changes they need to make.
+        // TODO: Use https://github.com/NLnetLabs/ods2cascade/pull/36 when/if ready.
+        if let Some(o_signer_interfaces) = o_signer_interfaces {
+            let mut different = c_conf.server.servers.len() == o_signer_interfaces.len();
+
+            // Determine if the user has already correctly configured
+            // Cascade to match the listener settings of OpenDNSSEC.
+            if !different {
+                for c_server in &c_conf.server.servers {
+                    let c_server = c_server.addr().to_string();
+                    if !o_signer_interfaces.contains(&c_server) {
+                        different = true;
+                        break;
+                    }
+                }
+            }
+
+            if different {
+                // TODO: This is brittle as it assumes what the TOML for the
+                // Cascade config file should look like, but we can't do better at
+                // present, see PR #36 for more info.
+                p.println(format!("Configure Cascade to publish on the same interfaces as the OpenDNSSEC Signer by setting [server].servers in {c_conf_toml_path} to:"));
+                p.println("  [server]");
+                p.println(format!("  servers = [{}]", o_signer_interfaces.join(",")));
+                p.next_step()?;
+            }
+        } else if c_conf.server.servers.is_empty() {
+            p.println(format!("Configure Cascade to publish on a UDP+TCP interface by setting [server].servers in {c_conf_toml_path}."));
+            p.println("This is needed because unlike OpenDNSSEC, Cascade always makes signed zones available via XFR for secondary nameservers.");
+            p.next_step()?;
+        }
+
+        if o_writes_signed_zones_to_disk {
+            // OpenDNSSEC was not configured to serve XFR. It must therefore have
+            // been writing signed zones to files on disk.
+            p.println("Deploy a secondary nameserver or use some other tool to retrieve signed zones via XFR and write them to disk.");
+            p.println("This is needed because your OpenDNSSEC instance writes signed zones to disk which Cascade is not yet able to do.");
+        }
+
+        p.next_step()?;
+        p.println("Validate your kmip2pkcs11 configuration files:");
+        for k2p_conf_path in k2p_conf_paths.iter() {
+            p.cmd(format!(
+                "sudo kmip2pkcs11 -c {k2p_conf_path} --check-config"
+            ));
+        }
+
+        p.next_step()?;
+        p.println("Copy the kmi2pkcs11 configuration files to the proper location:");
+        if k2p_conf_paths.len() > 1 {
+            p.println("NOTE: This should be a location that the kmip2pkcs11 instances will have read access to.");
+        } else {
+            let signer = o_conf.signer.as_ref().unwrap();
+            if let Some(Privileges {
+                user: Some(user), ..
+            }) = &signer.privileges
+            {
+                p.println(format!(
+                "NOTE: Your kmip2pkcs11 instance will run as user '{user}' thus the kmip2pkcs11 configuration file should be readable by this user."
+            ));
+            }
+        }
+        p.cmd(format!("sudo cp {k2p_dir}/*.toml /etc/kmip2pkcs11/"));
+
+        p.next_step()?;
+        p.println("Stop OpenDNSSEC:");
+        p.cmd("sudo ods-control stop");
+        p.require_confirmation(
+            "WARNING: Executing this command will SHUTDOWN your OpenDNSSEC instance.",
+        )?;
+
+        p.next_step()?;
+        p.println("Start kmip2pkcs11 once for each HSM to be connected to:");
+        if k2p_conf_paths.len() > 1 {
+            p.println("--------");
+            p.println("NOTE: If using systemd to control kmip2pkcs11 you will need to create separate kmip2pkcs11 units for each kmi2pkcs11 configuration file.");
+            p.println("--------");
+        }
+        if k2p_conf_paths.len() == 1 {
+            p.cmd("sudo systemctl start kmip2pkcs11");
+            p.println("OR");
+        }
+        for k2p_conf_path in k2p_conf_paths {
+            let file_name = Path::new(&k2p_conf_path).file_name().unwrap();
+            p.cmd(format!(
+                "sudo kmip2pkcs11 -c /etc/kmip2pkcs11/{}",
+                file_name.display()
+            ));
+        }
+
+        // TODO: Tell the user to invoke `kmip2pkcs11 --test-hsm` or
+        // equivalent here when such functionality becomes available.
+
+        p.next_step()?;
+        p.println("Validate your Cascade configuration:");
+        p.println(format!(
+            "sudo cascaded -c {c_conf_toml_path} --check-config"
+        ));
+
+        p.next_step()?;
+        p.println("Start Cascade:");
+        p.cmd("sudo systemctl start cascaded");
+        p.println("OR");
+        p.println(format!("E.g. sudo cascaded -c {c_conf_toml_path}"));
+
+        p.next_step()?;
+        p.println("Review the generated commands that will be used to configure Cascade:");
+        p.println(format!("less {cmd_file_path}"));
+
+        p.next_step()?;
+        p.println("Execute the generated commands to configure Cascade:");
+        p.cmd(format!("sh -ex {cmd_file_path}"));
+        p.require_confirmation(format!("WARNING: This step will cause zones to be added and signed. If you have a lot of zones or very large zones this could use a lot of CPU and/or memory. Please review the commands in '{cmd_file_path}' before executing the script."))?;
+
+        p.last_step()?;
+
+        Ok(())
+    }
+}
+
+struct StepPrinter<'a> {
+    step_idx: usize,
+    step_start: bool,
+    terminal: &'a mut terminal_prompt::Terminal,
+    review_mode: bool,
+}
+
+impl<'a> StepPrinter<'a> {
+    fn new(terminal: &'a mut terminal_prompt::Terminal, review_mode: bool) -> Self {
+        Self {
+            step_idx: 1,
+            step_start: true,
+            terminal,
+            review_mode,
+        }
+    }
+
+    fn cmd<T: Display>(&mut self, cmd: T) {
+        self.println(format!("E.g. {cmd}"));
+    }
+
+    fn println<T: Display>(&mut self, msg: T) {
+        if self.review_mode {
+            print!("[DRY RUN] ");
+        }
+        if self.step_start {
+            println!("STEP {}. {}", self.step_idx, msg);
+            self.step_start = false;
+        } else {
+            println!("        {msg}");
+        }
+    }
+
+    fn require_confirmation<T: Display>(&mut self, msg: T) -> anyhow::Result<()> {
+        println!();
+        if self.review_mode {
+            self.println(msg);
+            return Ok(());
+        }
+        confirm(self.terminal, msg)
+    }
+
+    fn next_step(&mut self) -> std::io::Result<()> {
+        println!();
+        self.step_idx += 1;
+        self.step_start = true;
+        if !self.review_mode {
+            wait_for_enter(self.terminal, "when you have performed this step")?;
+            println!();
+        }
+        Ok(())
+    }
+
+    fn last_step(&mut self) -> std::io::Result<()> {
+        self.next_step()
+    }
+}
+
+fn wait_for_enter<T: Display>(
+    terminal: &mut terminal_prompt::Terminal,
+    msg: T,
+) -> std::io::Result<()> {
+    let _ = terminal.prompt(format!("Press ENTER {msg}."))?;
+    Ok(())
+}
+
+fn ask<T: Display>(terminal: &mut terminal_prompt::Terminal, msg: T) -> std::io::Result<String> {
+    loop {
+        let res = terminal.prompt(format!("{msg} [yes/no] "))?;
+        match res.as_str() {
+            "yes" | "no" => return Ok(res),
+            _ => { /* loop */ }
+        }
+    }
+}
+
+fn confirm<T: Display>(terminal: &mut terminal_prompt::Terminal, msg: T) -> anyhow::Result<()> {
+    if ask(
+        terminal,
+        format!("{msg}\nPlease confirm that you understand."),
+    )? == "no"
+    {
+        bail!("Aborting because 'no' was not entered.");
+    }
+    Ok(())
 }
 
 fn process_adapter<IO: FsOps>(
@@ -501,6 +798,7 @@ fn process_adapter<IO: FsOps>(
     match adapter._type.as_str() {
         "File" => {
             // Zone file, do not load it.
+            Ok(None)
         }
         "DNS" => {
             // addns.xml, load it.
@@ -511,11 +809,10 @@ fn process_adapter<IO: FsOps>(
                 let adapter: Adapter = process_xml(&xml)?;
                 addns_paths_to_adapters.insert(path.clone(), adapter);
             }
-            return Ok(Some(path));
+            Ok(Some(path))
         }
-        other => panic!("Unsupported adapter type '{other}'"),
+        other => Err(anyhow!("Unsupported adapter type '{other}'")),
     }
-    Ok(None)
 }
 
 fn process_xml<'de, T: Deserialize<'de>>(xml: &'de str) -> Result<T, DeError> {
