@@ -637,7 +637,7 @@ impl Migrator {
             let file_name = Path::new(&k2p_conf_path).file_name().unwrap();
             p.cmd(format!(
                 "sudo kmip2pkcs11 -c /etc/kmip2pkcs11/{}",
-                file_name.display()
+                file_name.to_str().unwrap()
             ));
         }
 
