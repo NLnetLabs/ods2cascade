@@ -12,7 +12,7 @@ use std::{
 };
 
 use anyhow::{anyhow, bail};
-use cascade::config::file::Spec;
+use cascade::config::{SocketConfig, file::Spec};
 use cascade::policy::{
     AutoConfig, DsAlgorithm, NameserverCommsPolicy, OutboundPolicy, Policy, ReviewPolicy,
     ServerPolicy, SignerDenialPolicy, SignerPolicy, SignerSerialPolicy,
@@ -410,6 +410,49 @@ impl Migrator {
                 file.write_all(toml.as_bytes())?;
             }
             c_pol_by_c_pol_name.insert(c_pol_name.to_string(), c_pol);
+        }
+
+        // Determine if we would propose changes to the users Cascade config file.
+        let mut cascade_conf_changes_proposed = false;
+
+        // OpenDNSSEC signer listeners are optional. If the users OpenDNSSEC
+        // configuration specifies one or more listeners, the direct migration
+        // path to Cascade involves publishing signed zones on the same TCP
+        // interfaces as used by the OpenDNSSEC signer.
+        if let Some(non_empty_interfaces) = o_conf
+            .signer
+            .as_ref()
+            .map(|signer| &signer.listener.interfaces)
+            .map(|interfaces| interfaces.iter().filter(|i| !i.address.is_empty()))
+        {
+            for interface in non_empty_interfaces {
+                // Convert the OpenDNSSEC interface definition to a Cascade
+                // SocketConfig if possible.
+                let ip_addr = IpAddr::from_str(&interface.address).map_err(|err| {
+                    anyhow!(
+                        "OpenDNSSEC Signer listener interface address '{}' is invalid: {err}",
+                        interface.address,
+                    )
+                })?;
+                let sock_addr = SocketAddr::new(ip_addr, interface.port);
+                let sock_conf = SocketConfig::TCPUDP { addr: sock_addr };
+
+                // Check that the users Cascade config doesn't already listen
+                // on this interface.
+                if !c_conf.server.servers.contains(&sock_conf) {
+                    cascade_conf_changes_proposed = true;
+                    c_conf.server.servers.push(sock_conf);
+                }
+            }
+        }
+
+        // Generate an updated version of the users Cascade config file, as we
+        // don't want to touch any actual files on their system.
+        if cascade_conf_changes_proposed {
+            let out_path = format!("{output_dir_path}/config.toml");
+            let toml = toml::to_string_pretty(&c_conf)?;
+            let mut file = io.create(out_path)?;
+            file.write_all(toml.as_bytes())?;
         }
 
         // Output `cascade` commands for the user to run.
