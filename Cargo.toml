@@ -7,6 +7,7 @@ rust-version = "1.85"
 [dependencies]
 anyhow            = "1.0.100"
 atoi              = "2.0.0"
+# TODO: Upgrade our Cascade version in Cargo.lock and Use domain main, as Cascade now uses domain main.
 cascade           = { git = "https://github.com/NLnetLabs/cascade" }
 domain            = { git = "https://github.com/NLnetLabs/domain", branch = "patches-for-nameshed-prototype" } # Use the same domain as cascade
 fs-err            = "3.2.0"
