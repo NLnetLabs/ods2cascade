@@ -418,6 +418,8 @@ impl Migrator {
         let mut cmd_file = io.create(&cmd_file_path)?;
 
         for c_pol_name in c_pol_by_c_pol_name.keys() {
+            // TODO: Should the copied files should be chown'd to the cascade
+            // user?
             writeln!(
                 cmd_file,
                 "sudo cp {output_dir_path}/policies/{c_pol_name}.toml {c_pol_dir}/"
@@ -448,6 +450,11 @@ impl Migrator {
                 }
             }
 
+            // TODO: Adding the zone can fail if the zone file is readable by
+            // the cascaded daemon but not by the cascade CLI, even though the
+            // CLI shouldn't need read access to it as it only sends the path
+            // to the daemon. It fails when attempting to canonicalize the
+            // path to the zone file.
             writeln!(
                 cmd_file,
                 "cascade {c_cli_args} zone add --policy {c_pol_name} --source {source} {}",
@@ -614,10 +621,13 @@ impl Migrator {
                 ));
             }
         }
+        // TODO: Should the copied files be chown'd to the kmip2pkcs11 user?
         p.cmd(format!("sudo cp {k2p_dir}/*.toml /etc/kmip2pkcs11/"));
 
         p.next_step()?;
         p.println("Stop OpenDNSSEC:");
+        // TODO: Is root the correct user or should we use -u ods or something
+        // here?
         p.cmd("sudo ods-control stop");
         p.require_confirmation(
             "WARNING: Executing this command will SHUTDOWN your OpenDNSSEC instance.",
@@ -647,6 +657,7 @@ impl Migrator {
 
         p.next_step()?;
         p.println("Validate your Cascade configuration:");
+        // TODO: Should this check be run as the cascade user?
         p.println(format!(
             "sudo cascaded -c {c_conf_toml_path} --check-config"
         ));
