@@ -593,8 +593,10 @@ impl Migrator {
         p.next_step()?;
         p.println("Validate your kmip2pkcs11 configuration files:");
         for k2p_conf_path in k2p_conf_paths.iter() {
+            // Sudo is not required here as the config file was written by the
+            // current user.
             p.cmd(format!(
-                "sudo kmip2pkcs11 -c {k2p_conf_path} --check-config"
+                "kmip2pkcs11 -c {k2p_conf_path} --check-config"
             ));
         }
 
