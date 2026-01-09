@@ -2,8 +2,10 @@ version = "v1"
 
 [daemon]
 log-level = "warning"
-log-target = "syslog"
 daemonize = true
+
+[daemon.log-target]
+type = "syslog"
 
 [pkcs11]
 lib-path = "/path/to/some/pkcs11/module.so"
