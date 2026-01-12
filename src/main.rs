@@ -440,10 +440,13 @@ impl Migrator {
             "# Set the copied policy file ownership and permissions so that Cascade can read the files."
         )?;
         for c_pol_name in c_pol_by_c_pol_name.keys() {
-            writeln!(cmd_file, "sudo chown {c_user} {c_pol_dir}/{c_pol_name}.toml")?;
+            writeln!(
+                cmd_file,
+                "sudo chown {c_user} {c_pol_dir}/{c_pol_name}.toml"
+            )?;
             writeln!(cmd_file, "sudo chmod u+rx {c_pol_dir}/{c_pol_name}.toml")?;
         }
-        
+
         writeln!(cmd_file)?;
         writeln!(cmd_file, "# Tell Cascade to reload its policy files.")?;
         writeln!(cmd_file, "cascade {c_cli_args} policy reload")?;
