@@ -12,8 +12,8 @@ use std::{
 };
 
 use anyhow::{anyhow, bail};
-use cascade::config::file::Spec;
-use cascade::policy::{
+use cascaded::config::file::Spec;
+use cascaded::policy::{
     AutoConfig, DsAlgorithm, NameserverCommsPolicy, OutboundPolicy, Policy, ReviewPolicy,
     ServerPolicy, SignerDenialPolicy, SignerPolicy, SignerSerialPolicy,
 };
@@ -135,7 +135,7 @@ impl Migrator {
         println!("Loading {c_conf_toml_path}...");
         let toml = io.read_to_string(c_conf_toml_path)?;
         let c_conf_spec: Spec = toml::from_str(&toml)?;
-        let mut c_conf = cascade::config::Config::default();
+        let mut c_conf = cascaded::config::Config::default();
         c_conf_spec.parse_into(&mut c_conf);
         let c_pol_dir = c_conf.policy_dir.clone();
         let c_remote_control_server =
@@ -195,7 +195,7 @@ impl Migrator {
         let mut o_addns_path_by_o_zone_name = BTreeMap::<String, String>::new();
 
         // Cascade policy name -> Cascade policy
-        let mut c_pol_by_c_pol_name = BTreeMap::<String, cascade::policy::file::Spec>::new();
+        let mut c_pol_by_c_pol_name = BTreeMap::<String, cascaded::policy::file::Spec>::new();
 
         // ODS zone name -> ODS signed zone output path
         let _o_signed_zone_output_paths_by_zone_name = BTreeMap::<String, String>::new();
@@ -523,7 +523,7 @@ impl Migrator {
 
     #[allow(clippy::too_many_arguments)]
     async fn generate_readme_markdown(
-        c_conf: &cascade::config::Config,
+        c_conf: &cascaded::config::Config,
         c_conf_toml_path: &str,
         o_conf: &Configuration,
         o_conf_xml_path: &str,
@@ -860,7 +860,7 @@ fn create_cascade_policy(
     kasp: &crate::schema::xml::kasp::Policy,
     output: Option<&Outbound>,
     hsm_server_id: Option<String>,
-) -> anyhow::Result<cascade::policy::file::Spec> {
+) -> anyhow::Result<cascaded::policy::file::Spec> {
     // NOTE: OpenDNSSEC supports multiple keys per key type (KSK, ZSK, CSK)
     // per policy each having their own algorithm settings. Cascade only
     // supports one key specification per policy. Use the first key found.
@@ -903,15 +903,15 @@ fn create_cascade_policy(
         }
     }
 
-    let policy = cascade::policy::PolicyVersion {
+    let policy = cascaded::policy::PolicyVersion {
         name: kasp.name.clone().into_boxed_str(),
-        loader: cascade::policy::LoaderPolicy {
+        loader: cascaded::policy::LoaderPolicy {
             review: ReviewPolicy {
                 required: false,
                 cmd_hook: None,
             },
         },
-        key_manager: cascade::policy::KeyManagerPolicy {
+        key_manager: cascaded::policy::KeyManagerPolicy {
             hsm_server_id,
             use_csk,
             algorithm: algorithm.unwrap(),
@@ -968,7 +968,7 @@ fn create_cascade_policy(
         zones: Default::default(),
     };
 
-    Ok(cascade::policy::file::Spec::build(&policy))
+    Ok(cascaded::policy::file::Spec::build(&policy))
 }
 
 fn manual_or_automatic(manual_rollover: Option<()>) -> AutoConfig {
@@ -1088,19 +1088,19 @@ fn atoi_with_rest<I: atoi::FromRadix10>(text: &[u8]) -> (&[u8], Option<I>) {
     }
 }
 
-fn alg_to_key_parameters(key: Key) -> cascade::policy::KeyParameters {
+fn alg_to_key_parameters(key: Key) -> cascaded::policy::KeyParameters {
     let algorithm = match key {
         Key::Ksk(k) => &k.algorithm,
         Key::Zsk(k) => &k.algorithm,
         Key::Csk(k) => &k.algorithm,
     };
     match algorithm.value.as_str() {
-        "8" => cascade::policy::KeyParameters::RsaSha256(algorithm.length.parse().unwrap()),
-        "10" => cascade::policy::KeyParameters::RsaSha512(algorithm.length.parse().unwrap()),
-        "13" => cascade::policy::KeyParameters::EcdsaP256Sha256,
-        "14" => cascade::policy::KeyParameters::EcdsaP256Sha256,
-        "15" => cascade::policy::KeyParameters::Ed25519,
-        "16" => cascade::policy::KeyParameters::Ed448,
+        "8" => cascaded::policy::KeyParameters::RsaSha256(algorithm.length.parse().unwrap()),
+        "10" => cascaded::policy::KeyParameters::RsaSha512(algorithm.length.parse().unwrap()),
+        "13" => cascaded::policy::KeyParameters::EcdsaP256Sha256,
+        "14" => cascaded::policy::KeyParameters::EcdsaP256Sha256,
+        "15" => cascaded::policy::KeyParameters::Ed25519,
+        "16" => cascaded::policy::KeyParameters::Ed448,
         alg => panic!("Unsupported algorithm number {alg}"),
     }
 }
