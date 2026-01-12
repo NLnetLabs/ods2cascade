@@ -48,7 +48,7 @@ kmip2pkcs11 -c out/kmip2pkcs11/somehsm.toml --check-config
 kmip2pkcs11 -c out/kmip2pkcs11/someotherhsm.toml --check-config
 ```
 
-# 4. Copy the kmi2pkcs11 configuration files to the proper location.
+# 4. Copy the kmip2pkcs11 configuration files to the proper location.
 
 > [!NOTE]
 > This should be a location that the kmip2pkcs11 instances will have read access to.

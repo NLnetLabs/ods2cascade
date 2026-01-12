@@ -47,7 +47,7 @@ E.g.
 kmip2pkcs11 -c out/kmip2pkcs11/somehsm.toml --check-config
 ```
 
-# 4. Copy the kmi2pkcs11 configuration file to the proper location.
+# 4. Copy the kmip2pkcs11 configuration file to the proper location.
 
 > [!NOTE]
 > This should be a location that the kmip2pkcs11 instance will have read access to.

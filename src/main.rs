@@ -644,7 +644,7 @@ impl Migrator {
 
         p.next_step()?;
         p.println(format!(
-            "Copy the kmi2pkcs11 configuration file{plural} to the proper location."
+            "Copy the kmip2pkcs11 configuration file{plural} to the proper location."
         ))?;
         p.note(format!("This should be a location that the kmip2pkcs11 instance{plural} will have read access to."))?;
         p.println("")?;
