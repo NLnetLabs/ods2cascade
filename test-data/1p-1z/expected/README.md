@@ -40,21 +40,21 @@ servers = ["0.0.0.0:53"]
 Or use some other tool to retrieve signed zones via XFR and write them to disk.
 This is needed because your OpenDNSSEC instance writes signed zones to disk which Cascade is not yet able to do.
 
-# 3. Validate your kmip2pkcs11 configuration files:
+# 3. Validate your kmip2pkcs11 configuration files.
 
 E.g.
 ```sh
 kmip2pkcs11 -c out/kmip2pkcs11/somehsm.toml --check-config
 ```
 
-# 4. Copy the kmi2pkcs11 configuration files to the proper location:
+# 4. Copy the kmi2pkcs11 configuration files to the proper location.
 
 E.g.
 ```sh
 sudo cp out/kmip2pkcs11/*.toml /etc/kmip2pkcs11/
 ```
 
-# 5. Stop OpenDNSSEC:
+# 5. Stop OpenDNSSEC.
 
 > [!WARNING]
 > Executing this command will SHUTDOWN your OpenDNSSEC instance.
@@ -64,7 +64,7 @@ E.g.
 sudo ods-control stop
 ```
 
-# 6. Start kmip2pkcs11 once for each HSM to be connected to:
+# 6. Start kmip2pkcs11 once for each HSM to be connected to.
 
 E.g.
 ```sh
@@ -76,14 +76,14 @@ E.g.
 sudo kmip2pkcs11 -c /etc/kmip2pkcs11/somehsm.toml
 ```
 
-# 7. Validate your Cascade configuration:
+# 7. Validate your Cascade configuration.
 
 E.g.
 ```sh
 sudo cascaded -c conf.toml --check-config
 ```
 
-# 8. Start Cascade:
+# 8. Start Cascade.
 
 E.g.
 ```sh
@@ -95,14 +95,14 @@ E.g.
 sudo cascaded -c conf.toml
 ```
 
-# 9. Review the generated commands that will be used to configure Cascade:
+# 9. Review the generated commands that will be used to configure Cascade.
 
 E.g.
 ```sh
 less out/commands.sh
 ```
 
-# 10. Execute the generated commands to configure Cascade:
+# 10. Execute the generated commands to configure Cascade.
 
 > [!WARNING]
 > This step will cause zones to be added and signed. If you have a lot of zones or very large zones this could use a lot of CPU and/or memory. Please review the commands in 'out/commands.sh' before executing the script.

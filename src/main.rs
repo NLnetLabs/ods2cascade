@@ -613,7 +613,7 @@ impl Migrator {
         }
 
         p.next_step()?;
-        p.println("Validate your kmip2pkcs11 configuration files:")?;
+        p.println("Validate your kmip2pkcs11 configuration files.")?;
         for k2p_conf_path in k2p_conf_paths.iter() {
             // Sudo is not required here as the config file was written by the
             // current user.
@@ -624,7 +624,7 @@ impl Migrator {
         }
 
         p.next_step()?;
-        p.println("Copy the kmi2pkcs11 configuration files to the proper location:")?;
+        p.println("Copy the kmi2pkcs11 configuration files to the proper location.")?;
         if k2p_conf_paths.len() > 1 {
             p.note("This should be a location that the kmip2pkcs11 instances will have read access to.")?;
         } else if let Some(signer) = o_conf.signer.as_ref() {
@@ -641,7 +641,7 @@ impl Migrator {
         p.code_block("sh", format!("sudo cp {k2p_dir}/*.toml /etc/kmip2pkcs11/"))?;
 
         p.next_step()?;
-        p.println("Stop OpenDNSSEC:")?;
+        p.println("Stop OpenDNSSEC.")?;
         p.warning("Executing this command will SHUTDOWN your OpenDNSSEC instance.")?;
         p.println("")?;
         // TODO: Is root the correct user or should we use -u ods or something
@@ -649,7 +649,7 @@ impl Migrator {
         p.code_block("sh", "sudo ods-control stop")?;
 
         p.next_step()?;
-        p.println("Start kmip2pkcs11 once for each HSM to be connected to:")?;
+        p.println("Start kmip2pkcs11 once for each HSM to be connected to.")?;
         if k2p_conf_paths.len() > 1 {
             p.note("If using systemd to control kmip2pkcs11 you will need to create separate kmip2pkcs11 units for each kmi2pkcs11 configuration file.")?;
         }
@@ -672,7 +672,7 @@ impl Migrator {
         // equivalent here when such functionality becomes available.
 
         p.next_step()?;
-        p.println("Validate your Cascade configuration:")?;
+        p.println("Validate your Cascade configuration.")?;
         // TODO: Should this check be run as the cascade user?
         p.code_block(
             "sh",
@@ -680,17 +680,17 @@ impl Migrator {
         )?;
 
         p.next_step()?;
-        p.println("Start Cascade:")?;
+        p.println("Start Cascade.")?;
         p.code_block("sh", "sudo systemctl start cascaded")?;
         p.println("OR")?;
         p.code_block("sh", format!("sudo cascaded -c {c_conf_toml_path}"))?;
 
         p.next_step()?;
-        p.println("Review the generated commands that will be used to configure Cascade:")?;
+        p.println("Review the generated commands that will be used to configure Cascade.")?;
         p.code_block("sh", format!("less {cmd_file_path}"))?;
 
         p.next_step()?;
-        p.println("Execute the generated commands to configure Cascade:")?;
+        p.println("Execute the generated commands to configure Cascade.")?;
         p.warning(format!("This step will cause zones to be added and signed. If you have a lot of zones or very large zones this could use a lot of CPU and/or memory. Please review the commands in '{cmd_file_path}' before executing the script."))?;
         p.println("")?;
         p.code_block("sh", format!("sh -ex {cmd_file_path}"))?;
