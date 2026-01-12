@@ -691,7 +691,7 @@ impl Migrator {
 
         p.next_step()?;
         p.println("Execute the generated commands to configure Cascade.")?;
-        p.warning(format!("This step will cause zones to be added and signed. If you have a lot of zones or very large zones this could use a lot of CPU and/or memory. Please review the commands in '{cmd_file_path}' before executing the script."))?;
+        p.warning(format!("This step will cause zones to be added and signed. If you have a lot of zones or very large zones this could use a lot of CPU and/or memory. Please review the commands in `{cmd_file_path}` before executing the script."))?;
         p.println("")?;
         p.code_block("sh", format!("sh -ex {cmd_file_path}"))?;
         p.last_step()?;

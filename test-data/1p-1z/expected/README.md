@@ -105,7 +105,7 @@ less out/commands.sh
 # 10. Execute the generated commands to configure Cascade.
 
 > [!WARNING]
-> This step will cause zones to be added and signed. If you have a lot of zones or very large zones this could use a lot of CPU and/or memory. Please review the commands in 'out/commands.sh' before executing the script.
+> This step will cause zones to be added and signed. If you have a lot of zones or very large zones this could use a lot of CPU and/or memory. Please review the commands in `out/commands.sh` before executing the script.
 
 E.g.
 ```sh
