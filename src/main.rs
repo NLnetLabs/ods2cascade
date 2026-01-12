@@ -521,8 +521,7 @@ impl Migrator {
         o_writes_signed_zones_to_disk: bool,
         k2p_dir: &str,
         k2p_conf_paths: &[String],
-        #[allow(unused_variables)]
-        db_conn: &DbConn,
+        #[allow(unused_variables)] db_conn: &DbConn,
     ) -> anyhow::Result<String> {
         use std::fmt::Write;
 
@@ -554,7 +553,10 @@ impl Migrator {
 
         #[cfg(not(test))]
         if matches!(db_conn, DbConn::MySQL(_)) {
-            indoc::writedoc!(&mut buf, "  - Retiring the OpenDNSSEC MySQL database instance.")?;
+            indoc::writedoc!(
+                &mut buf,
+                "  - Retiring the OpenDNSSEC MySQL database instance."
+            )?;
         }
 
         indoc::writedoc!(&mut buf, "
@@ -601,7 +603,9 @@ impl Migrator {
             // OpenDNSSEC was not configured to serve XFR. It must therefore have
             // been writing signed zones to files on disk.
             p.println("Deploy a secondary nameserver")?;
-            p.println("Or use some other tool to retrieve signed zones via XFR and write them to disk.")?;
+            p.println(
+                "Or use some other tool to retrieve signed zones via XFR and write them to disk.",
+            )?;
             p.println("This is needed because your OpenDNSSEC instance writes signed zones to disk which Cascade is not yet able to do.")?;
         }
 
@@ -706,12 +710,15 @@ impl MarkdownStepPrinter {
 
     fn cmd<T: Display>(&mut self, cmd: T) -> Result<(), std::fmt::Error> {
         use std::fmt::Write;
-        indoc::writedoc!(&mut self.buf, "
+        indoc::writedoc!(
+            &mut self.buf,
+            "
             E.g.
             ```sh
             {cmd}
             ```
-        ")
+        "
+        )
     }
 
     fn println<T: Display>(&mut self, msg: T) -> Result<(), std::fmt::Error> {
