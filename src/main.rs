@@ -57,7 +57,7 @@ async fn main() {
     let o_conf_xml_path = args.next().unwrap();
     let output_dir_path = args.next().unwrap();
 
-    if let Err(err) = Migrator::migrate::<_, RealTerm>(
+    if let Err(err) = Migrator::migrate(
         &c_conf_toml_path,
         &o_conf_xml_path,
         &output_dir_path,
@@ -98,7 +98,7 @@ impl std::error::Error for MigrateError {}
 struct Migrator;
 
 impl Migrator {
-    async fn migrate<IO: FsOps, TERM: Term>(
+    async fn migrate<IO: FsOps>(
         c_conf_toml_path: &str,
         o_conf_xml_path: &str,
         output_dir_path: &str,
@@ -127,11 +127,6 @@ impl Migrator {
             ));
         }
 
-        let mut terminal = TERM::open()?;
-
-        wait_for_enter(&mut terminal, "to continue")?;
-
-        println!();
         println!("Gathering inputs and generating outputs:");
         println!();
 
@@ -186,8 +181,8 @@ impl Migrator {
         let o_zone_list: ZoneList = process_xml(&xml)?;
 
         // Verify that we can connect to the Enforcer database.
-        let mut conn = DbConn::new(&o_conf.enforcer.datastore.datastore).await?;
-        let db_version = conn.db_version().await?;
+        let mut db_conn = DbConn::new(&o_conf.enforcer.datastore.datastore).await?;
+        let db_version = db_conn.db_version().await?;
         println!("Found Enforcer database version: {}", db_version.version);
 
         // (ODS policy name, ODS addns path) -> Cascade policy name
@@ -450,6 +445,8 @@ impl Migrator {
         let mut cmd_file = io.create(&cmd_file_path)?;
 
         for c_pol_name in c_pol_by_c_pol_name.keys() {
+            // TODO: Should the copied files should be chown'd to the cascade
+            // user?
             writeln!(
                 cmd_file,
                 "sudo cp {output_dir_path}/policies/{c_pol_name}.toml {c_pol_dir}/"
@@ -480,6 +477,11 @@ impl Migrator {
                 }
             }
 
+            // TODO: Adding the zone can fail if the zone file is readable by
+            // the cascaded daemon but not by the cascade CLI, even though the
+            // CLI shouldn't need read access to it as it only sends the path
+            // to the daemon. It fails when attempting to canonicalize the
+            // path to the zone file.
             writeln!(
                 cmd_file,
                 "cascade {c_cli_args} zone add --policy {c_pol_name} --source {source} {}",
@@ -509,79 +511,85 @@ impl Migrator {
             }
         }
 
+        let readme_md = Self::generate_readme_markdown(
+            &c_conf,
+            c_conf_toml_path,
+            &o_conf,
+            o_conf_xml_path,
+            output_dir_path,
+            &cmd_file_path,
+            &o_signer_interfaces,
+            o_writes_signed_zones_to_disk,
+            &k2p_dir,
+            &k2p_conf_paths,
+            &db_conn,
+        )
+        .await?;
+
+        let readme_file_path = format!("{output_dir_path}/README.md");
+        let mut readme_file = io.create(&readme_file_path)?;
+        readme_file.write_all(readme_md.as_bytes())?;
+        readme_file.flush()?;
+        drop(readme_file);
+
         println!();
         println!("Gathering of inputs and generation of outputs is complete.");
-        println!();
-        println!("Next you will need to perform a sequence of manual steps.");
-        println!();
-        println!("---------");
         println!(
-            "REMINDER: This tool will NOT make changes to your system itself. Only the commands you execute yourself will make changes to your system."
-        );
-        println!("---------");
-        println!();
-
-        let res = ask(
-            &mut terminal,
-            "Would you first like to preview the complete set of steps before working through them one at a time?",
-        )?;
-        let mut preview_mode = res == "yes";
-        loop {
-            if preview_mode {
-                println!();
-                println!("*** STARTING PREVIEW ***");
-            }
-
-            Self::do_steps(
-                &mut terminal,
-                preview_mode,
-                &c_conf,
-                c_conf_toml_path,
-                &o_conf,
-                &cmd_file_path,
-                &o_signer_interfaces,
-                o_writes_signed_zones_to_disk,
-                &k2p_dir,
-                &k2p_conf_paths,
-            )
-            .await?;
-
-            if preview_mode {
-                preview_mode = false;
-                println!();
-                println!("*** PREVIEW FINISHED ***");
-            } else {
-                break;
-            }
-        }
-
-        println!(
-            "Migration complete. Assuming that you were able to perform each of the steps correctly your Cascade instance should now be signing and serving the zones that were being handled before by OpenDNSSEC."
+            "Please consult {readme_file_path} which advises how to proceed in order to perform the migration."
         );
 
         Ok(())
     }
 
     #[allow(clippy::too_many_arguments)]
-    async fn do_steps<TERM: Term>(
-        terminal: &mut TERM,
-        review_mode: bool,
+    async fn generate_readme_markdown(
         c_conf: &cascade::config::Config,
         c_conf_toml_path: &str,
         o_conf: &Configuration,
+        o_conf_xml_path: &str,
+        output_dir_path: &str,
         cmd_file_path: &str,
         o_signer_interfaces: &Option<Vec<String>>,
         o_writes_signed_zones_to_disk: bool,
         k2p_dir: &str,
         k2p_conf_paths: &[String],
-    ) -> anyhow::Result<()> {
-        let mut p = StepPrinter::new(terminal, review_mode);
+        #[allow(unused_variables)] db_conn: &DbConn,
+    ) -> anyhow::Result<String> {
+        let mut p = MarkdownWriter::new("#");
 
-        p.require_confirmation("WARNING: The commands that will be shown next are examples only and require your review and may need editing.")?;
+        p.writeln(indoc::formatdoc!("
+            # Suggested migration steps
 
-        if !review_mode {
-            println!();
+            This document was generated by `ods2cascade` with the following inputs:
+            
+              - OpenDNSSEC config file: `{o_conf_xml_path}`
+              - Cascade config file   : `{c_conf_toml_path}`
+              - Output directory      : `{output_dir_path}`
+            
+            It suggests a set of steps and commands that can be used to migrate signing and publishing of DNS zones from OpenDNSSEC to Cascade, using data already gathered from OpenDNSSEC, adjusted for how Cascade works, and written to the specified output directory.
+            
+            No attempt was made to detect specifics of your system outside of OpenDNSSEC itself, or to adjust to them. For example, you will need to adjust the process to allow for things such as:
+
+              - Use of sudo or not.
+              - Use of SELinux or AppArmor.
+            
+            The end result of following the suggested steps, once adjusted for your particular setup, will be that the OpenDNSSEC process no longer runs, communicates with your HSM, signs or serves zones, instead these will all be handled by Cascade instead.
+            
+            Note that there may still be tasks remaining after migration that are specific to your setup, including but not limited to:
+            
+              - Ensuring that OpenDNSSEC is not started again on next boot but instead Cascade is started.
+              - Updating your backup and monitoring procedures.
+        "))?;
+
+        #[cfg(not(test))]
+        if matches!(db_conn, DbConn::MySQL(_)) {
+            p.writeln(indoc::indoc!(
+                "  - Retiring the OpenDNSSEC MySQL database instance."
+            ))?;
         }
+
+        p.warning("The commands shown below are examples only and require your review and may need adjusting for your setup.")?;
+        p.writeln("")?;
 
         // Notify the user of any Cascade config changes they need to make.
         // TODO: Use https://github.com/NLnetLabs/ods2cascade/pull/36 when/if ready.
@@ -604,186 +612,210 @@ impl Migrator {
                 // TODO: This is brittle as it assumes what the TOML for the
                 // Cascade config file should look like, but we can't do better at
                 // present, see PR #36 for more info.
-                p.println(format!("Configure Cascade to publish on the same interfaces as the OpenDNSSEC Signer by setting [server].servers in {c_conf_toml_path} to:"));
-                p.println("  [server]");
-                p.println(format!("  servers = [{}]", o_signer_interfaces.join(",")));
+                p.println(format!("Configure Cascade to publish on the same interfaces as the OpenDNSSEC Signer by setting [server].servers in {c_conf_toml_path} to:"))?;
+                p.println("  [server]")?;
+                p.println(format!("  servers = [{}]", o_signer_interfaces.join(",")))?;
                 p.next_step()?;
             }
         } else if c_conf.server.servers.is_empty() {
-            p.println(format!("Configure Cascade to publish on a UDP+TCP interface by setting [server].servers in {c_conf_toml_path}."));
-            p.println("This is needed because unlike OpenDNSSEC, Cascade always makes signed zones available via XFR for secondary nameservers.");
+            p.println("Configure Cascade to publish on a UDP+TCP interface.")?;
+            p.println("This is needed because unlike OpenDNSSEC, Cascade always makes signed zones available via XFR for secondary nameservers.")?;
+            p.println("")?;
+            p.println(format!(
+                "This can be done using the `servers` setting in `{c_conf_toml_path}`."
+            ))?;
+            p.println("")?;
+            p.code_block(
+                "toml",
+                indoc::indoc! {r#"
+                [server]
+                servers = ["0.0.0.0:53"]"#},
+            )?;
             p.next_step()?;
         }
 
         if o_writes_signed_zones_to_disk {
             // OpenDNSSEC was not configured to serve XFR. It must therefore have
             // been writing signed zones to files on disk.
-            p.println("Deploy a secondary nameserver or use some other tool to retrieve signed zones via XFR and write them to disk.");
-            p.println("This is needed because your OpenDNSSEC instance writes signed zones to disk which Cascade is not yet able to do.");
+            p.println("Deploy a secondary nameserver.")?;
+            p.println(
+                "Or use some other tool to retrieve signed zones via XFR and write them to disk.",
+            )?;
+            p.println("This is needed because your OpenDNSSEC instance writes signed zones to disk which Cascade is not yet able to do.")?;
         }
 
         p.next_step()?;
-        p.println("Validate your kmip2pkcs11 configuration files:");
+        p.println("Validate your kmip2pkcs11 configuration files.")?;
         for k2p_conf_path in k2p_conf_paths.iter() {
-            p.cmd(format!(
-                "sudo kmip2pkcs11 -c {k2p_conf_path} --check-config"
-            ));
+            // Sudo is not required here as the config file was written by the
+            // current user.
+            p.code_block(
+                "sh",
+                format!("kmip2pkcs11 -c {k2p_conf_path} --check-config"),
+            )?;
         }
 
         p.next_step()?;
-        p.println("Copy the kmi2pkcs11 configuration files to the proper location:");
+        p.println("Copy the kmi2pkcs11 configuration files to the proper location.")?;
         if k2p_conf_paths.len() > 1 {
-            p.println("NOTE: This should be a location that the kmip2pkcs11 instances will have read access to.");
+            p.note("This should be a location that the kmip2pkcs11 instances will have read access to.")?;
         } else if let Some(signer) = o_conf.signer.as_ref() {
             if let Some(Privileges {
                 user: Some(user), ..
             }) = &signer.privileges
             {
-                p.println(format!(
-                    "NOTE: Your kmip2pkcs11 instance will run as user '{user}' thus the kmip2pkcs11 configuration file should be readable by this user."
-                ));
+                p.note(format!(
+                    "Your kmip2pkcs11 instance will run as user '{user}' thus the kmip2pkcs11 configuration file should be readable by this user."
+                ))?;
+                p.println("")?;
             }
         }
-        p.cmd(format!("sudo cp {k2p_dir}/*.toml /etc/kmip2pkcs11/"));
+        // TODO: Should the copied files be chown'd to the kmip2pkcs11 user?
+        p.code_block("sh", format!("sudo cp {k2p_dir}/*.toml /etc/kmip2pkcs11/"))?;
 
         p.next_step()?;
-        p.println("Stop OpenDNSSEC:");
-        p.cmd("sudo ods-control stop");
-        p.require_confirmation(
-            "WARNING: Executing this command will SHUTDOWN your OpenDNSSEC instance.",
-        )?;
+        p.println("Stop OpenDNSSEC.")?;
+        p.warning("Executing this command will SHUTDOWN your OpenDNSSEC instance.")?;
+        p.println("")?;
+        // TODO: Is root the correct user or should we use -u ods or something
+        // here?
+        p.code_block("sh", "sudo ods-control stop")?;
 
         p.next_step()?;
-        p.println("Start kmip2pkcs11 once for each HSM to be connected to:");
+        p.println("Start kmip2pkcs11 once for each HSM to be connected to.")?;
         if k2p_conf_paths.len() > 1 {
-            p.println("--------");
-            p.println("NOTE: If using systemd to control kmip2pkcs11 you will need to create separate kmip2pkcs11 units for each kmi2pkcs11 configuration file.");
-            p.println("--------");
+            p.note("If using systemd to control kmip2pkcs11 you will need to create separate kmip2pkcs11 units for each kmi2pkcs11 configuration file.")?;
         }
         if k2p_conf_paths.len() == 1 {
-            p.cmd("sudo systemctl start kmip2pkcs11");
-            p.println("OR");
+            p.code_block("sh", "sudo systemctl start kmip2pkcs11")?;
+            p.println("OR")?;
         }
         for k2p_conf_path in k2p_conf_paths {
             let file_name = Path::new(&k2p_conf_path).file_name().unwrap();
-            p.cmd(format!(
-                "sudo kmip2pkcs11 -c /etc/kmip2pkcs11/{}",
-                file_name.to_str().unwrap()
-            ));
+            p.code_block(
+                "sh",
+                format!(
+                    "sudo kmip2pkcs11 -c /etc/kmip2pkcs11/{}",
+                    file_name.to_str().unwrap()
+                ),
+            )?;
         }
 
         // TODO: Tell the user to invoke `kmip2pkcs11 --test-hsm` or
         // equivalent here when such functionality becomes available.
 
         p.next_step()?;
-        p.println("Validate your Cascade configuration:");
-        p.println(format!(
-            "sudo cascaded -c {c_conf_toml_path} --check-config"
-        ));
+        p.println("Validate your Cascade configuration.")?;
+        // TODO: Should this check be run as the cascade user?
+        p.code_block(
+            "sh",
+            format!("sudo cascaded -c {c_conf_toml_path} --check-config"),
+        )?;
 
         p.next_step()?;
-        p.println("Start Cascade:");
-        p.cmd("sudo systemctl start cascaded");
-        p.println("OR");
-        p.println(format!("E.g. sudo cascaded -c {c_conf_toml_path}"));
+        p.println("Start Cascade.")?;
+        p.code_block("sh", "sudo systemctl start cascaded")?;
+        p.println("OR")?;
+        p.code_block("sh", format!("sudo cascaded -c {c_conf_toml_path}"))?;
 
         p.next_step()?;
-        p.println("Review the generated commands that will be used to configure Cascade:");
-        p.println(format!("less {cmd_file_path}"));
+        p.println("Review the generated commands that will be used to configure Cascade.")?;
+        p.code_block("sh", format!("less {cmd_file_path}"))?;
 
         p.next_step()?;
-        p.println("Execute the generated commands to configure Cascade:");
-        p.cmd(format!("sh -ex {cmd_file_path}"));
-        p.require_confirmation(format!("WARNING: This step will cause zones to be added and signed. If you have a lot of zones or very large zones this could use a lot of CPU and/or memory. Please review the commands in '{cmd_file_path}' before executing the script."))?;
-
+        p.println("Execute the generated commands to configure Cascade.")?;
+        p.warning(format!("This step will cause zones to be added and signed. If you have a lot of zones or very large zones this could use a lot of CPU and/or memory. Please review the commands in `{cmd_file_path}` before executing the script."))?;
+        p.println("")?;
+        p.code_block("sh", format!("sh -ex {cmd_file_path}"))?;
         p.last_step()?;
 
-        Ok(())
+        Ok(p.into())
     }
 }
 
-struct StepPrinter<'a, TERM: Term> {
+struct MarkdownWriter {
     step_idx: usize,
     step_start: bool,
-    terminal: &'a mut TERM,
-    review_mode: bool,
+    buf: String,
+    heading: String,
 }
 
-impl<'a, TERM: Term> StepPrinter<'a, TERM> {
-    fn new(terminal: &'a mut TERM, review_mode: bool) -> Self {
+impl MarkdownWriter {
+    fn new<T: Into<String>>(heading: T) -> Self {
         Self {
             step_idx: 1,
             step_start: true,
-            terminal,
-            review_mode,
+            buf: String::new(),
+            heading: heading.into(),
         }
     }
 
-    fn cmd<T: Display>(&mut self, cmd: T) {
-        self.println(format!("E.g. {cmd}"));
+    fn writeln<T: Display>(&mut self, msg: T) -> Result<(), std::fmt::Error> {
+        use std::fmt::Write;
+        writeln!(&mut self.buf, "{}", msg)
     }
 
-    fn println<T: Display>(&mut self, msg: T) {
-        if self.review_mode {
-            print!("[DRY RUN] ");
-        }
+    fn code_block<T: Display>(&mut self, lang: &str, cmd: T) -> Result<(), std::fmt::Error> {
+        use std::fmt::Write;
+        indoc::writedoc!(
+            &mut self.buf,
+            "
+            E.g.
+            ```{lang}
+            {cmd}
+            ```
+        "
+        )
+    }
+
+    fn note<T: Display>(&mut self, msg: T) -> Result<(), std::fmt::Error> {
+        use std::fmt::Write;
+        indoc::writedoc!(
+            &mut self.buf,
+            "
+            > [!NOTE]
+            > {msg}
+        "
+        )
+    }
+
+    fn warning<T: Display>(&mut self, msg: T) -> Result<(), std::fmt::Error> {
+        use std::fmt::Write;
+        indoc::writedoc!(
+            &mut self.buf,
+            "
+            > [!WARNING]
+            > {msg}
+        "
+        )
+    }
+
+    fn println<T: Display>(&mut self, msg: T) -> Result<(), std::fmt::Error> {
+        use std::fmt::Write;
         if self.step_start {
-            println!("STEP {}. {}", self.step_idx, msg);
+            writeln!(&mut self.buf, "{} {}. {}", self.heading, self.step_idx, msg)?;
+            writeln!(&mut self.buf)?;
             self.step_start = false;
         } else {
-            println!("        {msg}");
+            writeln!(&mut self.buf, "{msg}")?;
         }
-    }
-
-    fn require_confirmation<T: Display>(&mut self, msg: T) -> anyhow::Result<()> {
-        println!();
-        if self.review_mode {
-            self.println(msg);
-            return Ok(());
-        }
-        confirm(self.terminal, msg)
+        Ok(())
     }
 
     fn next_step(&mut self) -> std::io::Result<()> {
-        println!();
+        self.buf += "\n";
         self.step_idx += 1;
         self.step_start = true;
-        if !self.review_mode {
-            wait_for_enter(self.terminal, "when you have performed this step")?;
-            println!();
-        }
         Ok(())
     }
 
     fn last_step(&mut self) -> std::io::Result<()> {
         self.next_step()
     }
-}
 
-fn wait_for_enter<TERM: Term, T: Display>(terminal: &mut TERM, msg: T) -> std::io::Result<()> {
-    let _ = terminal.prompt(format!("Press ENTER {msg}."))?;
-    Ok(())
-}
-
-fn ask<TERM: Term, T: Display>(terminal: &mut TERM, msg: T) -> std::io::Result<String> {
-    loop {
-        let res = terminal.prompt(format!("{msg} [yes/no] "))?;
-        match res.as_str() {
-            "yes" | "no" => return Ok(res),
-            _ => { /* loop */ }
-        }
+    fn into(self) -> String {
+        self.buf
     }
-}
-
-fn confirm<TERM: Term, T: Display>(terminal: &mut TERM, msg: T) -> anyhow::Result<()> {
-    if ask(
-        terminal,
-        format!("{msg}\nPlease confirm that you understand."),
-    )? == "no"
-    {
-        bail!("Aborting because 'no' was not entered.");
-    }
-    Ok(())
 }
 
 fn process_adapter<IO: FsOps>(
@@ -1162,29 +1194,6 @@ impl DbConn {
 //     .await?;
 // dbg!(policy_keys);
 
-trait Term {
-    type T: Term;
-    fn open() -> std::io::Result<Self::T>;
-    fn prompt(&mut self, prompt: impl Display) -> std::io::Result<String>;
-}
-
-struct RealTerm {
-    terminal: terminal_prompt::Terminal,
-}
-
-impl Term for RealTerm {
-    type T = Self;
-    fn open() -> std::io::Result<Self> {
-        Ok(Self {
-            terminal: terminal_prompt::Terminal::open()?,
-        })
-    }
-
-    fn prompt(&mut self, prompt: impl Display) -> std::io::Result<String> {
-        self.terminal.prompt(prompt)
-    }
-}
-
 #[cfg(test)]
 mod test {
     use std::{
@@ -1197,7 +1206,7 @@ mod test {
     use pretty_assertions::assert_eq;
 
     use crate::{
-        MigrateError, Migrator, Term,
+        MigrateError, Migrator,
         io::{Fs, FsOps},
     };
 
@@ -1208,7 +1217,7 @@ mod test {
         let io = Fs::new();
         io.register_dir("out");
 
-        let res = Migrator::migrate::<_, MockTerm>("conf.toml", "conf.xml", "out", &io).await;
+        let res = Migrator::migrate("conf.toml", "conf.xml", "out", &io).await;
         let v = to_inner_err::<_, std::io::Error>(res);
         assert_eq!(v.kind(), std::io::ErrorKind::AlreadyExists);
     }
@@ -1285,7 +1294,7 @@ mod test {
         }
 
         // Run the migration.
-        Migrator::migrate::<_, MockTerm>("conf.toml", "conf.xml", "out", &io).await?;
+        Migrator::migrate("conf.toml", "conf.xml", "out", &io).await?;
 
         // Verify the expected outputs
         let mut expected_paths = HashSet::new();
@@ -1367,20 +1376,5 @@ mod test {
         let inner_err = err.downcast::<E>();
         assert!(inner_err.is_ok());
         inner_err.unwrap()
-    }
-
-    //-------- Helper types --------------------------------------------------
-
-    struct MockTerm;
-
-    impl Term for MockTerm {
-        type T = Self;
-        fn open() -> std::io::Result<Self> {
-            Ok(Self)
-        }
-
-        fn prompt(&mut self, _prompt: impl Display) -> std::io::Result<String> {
-            Ok("yes".to_string())
-        }
     }
 }
