@@ -63,8 +63,8 @@ sudo cp out/kmip2pkcs11/*.toml /etc/kmip2pkcs11/
 If using systemd to control kmip2pkcs11 you will need to create separate kmip2pkcs11 units for each of the following kmip2pkcs11 configuration files.
 Each systemd kmip2pkcs11 unit should invoke kmi2pkcs11 with `--config` specifying its own kmi2pkcs11 configuration file.
 
-  - /etc/kmip2pkcs11/somehsm.toml
-  - /etc/kmip2pkcs11/someotherhsm.toml
+  - `/etc/kmip2pkcs11/somehsm.toml`
+  - `/etc/kmip2pkcs11/someotherhsm.toml`
 
 # 6. Stop OpenDNSSEC.
 
