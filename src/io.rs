@@ -50,6 +50,9 @@ pub trait FsOps {
         name: &str,
         dbg_dir: &str,
     ) -> std::io::Result<()>;
+
+    /// Get the owner of a file.
+    fn owner<P: AsRef<Path>>(&self, path: P) -> std::io::Result<Option<String>>;
 }
 
 //--- Actual I/O impl of IoUtil ----------------------------------------------
@@ -60,6 +63,7 @@ mod inner {
     use std::io::Write;
     use std::path::Path;
 
+    use domain::base::scan::ScannerError;
     use fs_err::File;
 
     use crate::io::FsOps;
@@ -101,6 +105,16 @@ mod inner {
             let mut f = self.create(format!("{dbg_dir}/{name}"))?;
             write!(f, "{:#?}", &v)?;
             Ok(())
+        }
+
+        fn owner<P: AsRef<Path>>(&self, path: P) -> std::io::Result<Option<String>> {
+            use file_owner::PathExt;
+            path.owner().and_then(|owner| owner.name()).map_err(|err| {
+                std::io::Error::other(format!(
+                    "File ownership for '{}' could not be determined: {err}",
+                    path.as_ref().display()
+                ))
+            })
         }
     }
 }
@@ -231,6 +245,10 @@ mod inner {
         ) -> std::io::Result<()> {
             // Do nothing as we don't need the debug files during tests.
             Ok(())
+        }
+
+        fn owner<P: AsRef<Path>>(&self, _path: P) -> std::io::Result<Option<String>> {
+            Ok(Some("test".to_string()))
         }
     }
 

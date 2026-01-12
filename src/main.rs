@@ -412,28 +412,68 @@ impl Migrator {
         let cmd_file_path = format!("{output_dir_path}/commands.sh");
         let mut cmd_file = io.create(&cmd_file_path)?;
 
+        let c_user = match c_conf.daemon.identity.as_ref().map(|id| id.0.to_string()) {
+            Some(username) => username,
+            None => {
+                // Use the owner of the Cascade config file as the user to grant
+                // read access to newly installed Cascade policy files.
+                io.owner(c_conf_toml_path)?.ok_or(anyhow!(
+                    "Failed to determine ownership of file '{c_conf_toml_path}': Cause unknown",
+                ))?
+            }
+        };
+
+        writeln!(
+            cmd_file,
+            "# Copy the generated policies to the Cascade policy directory."
+        )?;
         for c_pol_name in c_pol_by_c_pol_name.keys() {
-            // TODO: Should the copied files should be chown'd to the cascade
-            // user?
             writeln!(
                 cmd_file,
                 "sudo cp {output_dir_path}/policies/{c_pol_name}.toml {c_pol_dir}/"
             )?;
         }
+
+        writeln!(cmd_file)?;
+        writeln!(
+            cmd_file,
+            "# Set the copied policy file ownership and permissions so that Cascade can read the files."
+        )?;
+        for c_pol_name in c_pol_by_c_pol_name.keys() {
+            writeln!(cmd_file, "sudo chown {c_user} {c_pol_dir}/{c_pol_name}.toml")?;
+            writeln!(cmd_file, "sudo chmod u+rx {c_pol_dir}/{c_pol_name}.toml")?;
+        }
+        
+        writeln!(cmd_file)?;
+        writeln!(cmd_file, "# Tell Cascade to reload its policy files.")?;
         writeln!(cmd_file, "cascade {c_cli_args} policy reload")?;
 
         // Output `hsm add` commands for all HSMs.
         // TODO: Should we restrict this to only those HSMs in use?
         for o_repo in &o_conf.repository_list.repositories {
             let hsm_name = sanitize_filename::sanitize(&o_repo.name);
+            // The HSM server is wherever kmip2pkcs11 is running.
+            // For OpenDNSSEC it was always effectively localhost, so we
+            // output a Cascade command that assumes that kmip2pkcs11 is
+            // likewise available on localhost aka 127.0.0.1.
+            writeln!(cmd_file)?;
             writeln!(
                 cmd_file,
-                "cascade {c_cli_args} hsm add --insecure --username {} --password {} {hsm_name}",
+                "# Tell Cascade that a kmip2pkcs11 instance named '{hsm_name}' is available at 127.0.0.1."
+            )?;
+            writeln!(
+                cmd_file,
+                "cascade {c_cli_args} hsm add --insecure --username {} --password {} {hsm_name} 127.0.0.1",
                 o_repo.token_label,
                 o_repo.pin.clone().unwrap()
             )?;
         }
 
+        writeln!(cmd_file)?;
+        writeln!(
+            cmd_file,
+            "# Tell Cascade to load and sign our zones using the appropriate policies."
+        )?;
         for zone in &o_zone_list.zones {
             let addns_path = o_addns_path_by_o_zone_name.get(&zone.name);
             let Some(c_pol_name) = c_pol_name_by_o_pol_name_plus_addns_path
