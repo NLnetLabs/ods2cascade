@@ -424,13 +424,13 @@ impl Migrator {
 
         // Output `hsm add` commands for all HSMs.
         // TODO: Should we restrict this to only those HSMs in use?
-        for o_repo in o_conf.repository_list.repositories {
+        for o_repo in &o_conf.repository_list.repositories {
             let hsm_name = sanitize_filename::sanitize(&o_repo.name);
             writeln!(
                 cmd_file,
                 "cascade {c_cli_args} hsm add --insecure --username {} --password {} {hsm_name}",
                 o_repo.token_label,
-                o_repo.pin.unwrap()
+                o_repo.pin.clone().unwrap()
             )?;
         }
 
@@ -625,28 +625,38 @@ impl Migrator {
         }
 
         p.next_step()?;
-        p.println("Validate your kmip2pkcs11 configuration files.")?;
+        let plural = if k2p_conf_paths.len() > 1 { "s" } else { "" };
+        p.println(format!(
+            "Validate your kmip2pkcs11 configuration file{plural}."
+        ))?;
+        let mut validate_cmds = String::new();
         for k2p_conf_path in k2p_conf_paths.iter() {
             // Sudo is not required here as the config file was written by the
             // current user.
-            p.code_block(
-                "sh",
-                format!("kmip2pkcs11 -c {k2p_conf_path} --check-config"),
+            use std::fmt::Write;
+            writeln!(
+                &mut validate_cmds,
+                "kmip2pkcs11 -c {k2p_conf_path} --check-config"
             )?;
         }
+        p.code_block("sh", validate_cmds)?;
 
         p.next_step()?;
-        p.println("Copy the kmi2pkcs11 configuration files to the proper location.")?;
-        if k2p_conf_paths.len() > 1 {
-            p.note("This should be a location that the kmip2pkcs11 instances will have read access to.")?;
-        } else if let Some(signer) = o_conf.signer.as_ref() {
-            if let Some(Privileges {
-                user: Some(user), ..
-            }) = &signer.privileges
-            {
-                p.note(format!(
+        p.println(format!(
+            "Copy the kmi2pkcs11 configuration file{plural} to the proper location."
+        ))?;
+        p.note(format!("This should be a location that the kmip2pkcs11 instance{plural} will have read access to."))?;
+        p.println("")?;
+        if k2p_conf_paths.len() == 1 {
+            if let Some(signer) = o_conf.signer.as_ref() {
+                if let Some(Privileges {
+                    user: Some(user), ..
+                }) = &signer.privileges
+                {
+                    p.note(format!(
                     "Your kmip2pkcs11 instance will run as user '{user}' thus the kmip2pkcs11 configuration file should be readable by this user."
                 ))?;
+                }
             }
         }
         // TODO: Should the copied files be chown'd to the kmip2pkcs11 user?
@@ -663,22 +673,24 @@ impl Migrator {
         p.next_step()?;
         p.println("Start kmip2pkcs11 once for each HSM to be connected to.")?;
         if k2p_conf_paths.len() > 1 {
-            p.note("If using systemd to control kmip2pkcs11 you will need to create separate kmip2pkcs11 units for each kmi2pkcs11 configuration file.")?;
+            p.note("If using systemd to control kmip2pkcs11 you will need to create separate kmip2pkcs11 units for each kmip2pkcs11 configuration file.")?;
+            p.println("")?;
         }
         if k2p_conf_paths.len() == 1 {
             p.code_block("sh", "sudo systemctl start kmip2pkcs11")?;
             p.println("OR")?;
         }
+        let mut start_cmds = String::new();
         for k2p_conf_path in k2p_conf_paths {
             let file_name = Path::new(&k2p_conf_path).file_name().unwrap();
-            p.code_block(
-                "sh",
-                format!(
-                    "sudo kmip2pkcs11 -c /etc/kmip2pkcs11/{}",
-                    file_name.to_str().unwrap()
-                ),
+            use std::fmt::Write;
+            writeln!(
+                &mut start_cmds,
+                "sudo kmip2pkcs11 -c /etc/kmip2pkcs11/{}",
+                file_name.to_str().unwrap()
             )?;
         }
+        p.code_block("sh", start_cmds)?;
 
         // TODO: Tell the user to invoke `kmip2pkcs11 --test-hsm` or
         // equivalent here when such functionality becomes available.
@@ -741,9 +753,10 @@ impl MarkdownWriter {
             "
             E.g.
             ```{lang}
-            {cmd}
+            {}
             ```
-        "
+            ",
+            cmd.to_string().trim_end()
         )
     }
 
@@ -754,7 +767,7 @@ impl MarkdownWriter {
             "
             > [!NOTE]
             > {msg}
-        "
+            "
         )
     }
 
@@ -765,7 +778,7 @@ impl MarkdownWriter {
             "
             > [!WARNING]
             > {msg}
-        "
+            "
         )
     }
 
@@ -1302,8 +1315,10 @@ mod test {
 
         // Compare the set of expected vs actual output paths.
         assert_eq!(
-            expected_paths, actual_paths,
-            "The expected output paths do not match the generated output paths"
+            expected_paths,
+            actual_paths,
+            "The files in '{}' do not match the generated output files",
+            expected_dir.display()
         );
 
         // Compare the contents of the expected vs actual output files.
@@ -1316,8 +1331,9 @@ mod test {
             assert_eq!(
                 expected,
                 actual,
-                "Content of generated file '{}' does not match the expected content",
-                path.display()
+                "Content of generated file '{}' does not match {}",
+                path.display(),
+                expected_dir.join(path).display()
             );
         }
 
