@@ -673,7 +673,7 @@ impl Migrator {
             for k2p_conf_path in k2p_conf_paths {
                 let file_name = Path::new(&k2p_conf_path).file_name().unwrap();
                 p.println(format!(
-                    "  - /etc/kmip2pkcs11/{}",
+                    "  - `/etc/kmip2pkcs11/{}`",
                     file_name.to_str().unwrap()
                 ))?;
             }
