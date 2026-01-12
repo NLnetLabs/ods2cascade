@@ -67,13 +67,14 @@ E.g.
 sudo ods-control stop
 ```
 
-# 6. Start kmip2pkcs11 once for each HSM to be connected to.
+# 6. Start kmip2pkcs11.
 
+If using systemd:
 E.g.
 ```sh
 sudo systemctl start kmip2pkcs11
 ```
-OR
+Otherwise:
 E.g.
 ```sh
 sudo kmip2pkcs11 -c /etc/kmip2pkcs11/somehsm.toml

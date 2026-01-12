@@ -58,7 +58,15 @@ E.g.
 sudo cp out/kmip2pkcs11/*.toml /etc/kmip2pkcs11/
 ```
 
-# 5. Stop OpenDNSSEC.
+# 5. Create additional kmip2pkcs11 systemd units.
+
+If using systemd to control kmip2pkcs11 you will need to create separate kmip2pkcs11 units for each of the following kmip2pkcs11 configuration files.
+Each systemd kmip2pkcs11 unit should invoke kmi2pkcs11 with `--config` specifying its own kmi2pkcs11 configuration file.
+
+  - /etc/kmip2pkcs11/somehsm.toml
+  - /etc/kmip2pkcs11/someotherhsm.toml
+
+# 6. Stop OpenDNSSEC.
 
 > [!WARNING]
 > Executing this command will SHUTDOWN your OpenDNSSEC instance.
@@ -68,25 +76,24 @@ E.g.
 sudo ods-control stop
 ```
 
-# 6. Start kmip2pkcs11 once for each HSM to be connected to.
+# 7. Start kmip2pkcs11 once for each HSM to be connected to.
 
-> [!NOTE]
-> If using systemd to control kmip2pkcs11 you will need to create separate kmip2pkcs11 units for each kmip2pkcs11 configuration file.
-
+If using systemd to control kmip2pkcs11, start each of the kmip2pkcs11 units that you created above.
+Otherwise:
 E.g.
 ```sh
 sudo kmip2pkcs11 -c /etc/kmip2pkcs11/somehsm.toml
 sudo kmip2pkcs11 -c /etc/kmip2pkcs11/someotherhsm.toml
 ```
 
-# 7. Validate your Cascade configuration.
+# 8. Validate your Cascade configuration.
 
 E.g.
 ```sh
 sudo cascaded -c conf.toml --check-config
 ```
 
-# 8. Start Cascade.
+# 9. Start Cascade.
 
 E.g.
 ```sh
@@ -98,14 +105,14 @@ E.g.
 sudo cascaded -c conf.toml
 ```
 
-# 9. Review the generated commands that will be used to configure Cascade.
+# 10. Review the generated commands that will be used to configure Cascade.
 
 E.g.
 ```sh
 less out/commands.sh
 ```
 
-# 10. Execute the generated commands to configure Cascade.
+# 11. Execute the generated commands to configure Cascade.
 
 > [!WARNING]
 > This step will cause zones to be added and signed. If you have a lot of zones or very large zones this could use a lot of CPU and/or memory. Please review the commands in `out/commands.sh` before executing the script.

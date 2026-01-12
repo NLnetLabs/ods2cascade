@@ -625,7 +625,8 @@ impl Migrator {
         }
 
         p.next_step()?;
-        let plural = if k2p_conf_paths.len() > 1 { "s" } else { "" };
+        let have_multiple_k2p_configs = k2p_conf_paths.len() > 1;
+        let plural = if have_multiple_k2p_configs { "s" } else { "" };
         p.println(format!(
             "Validate your kmip2pkcs11 configuration file{plural}."
         ))?;
@@ -647,7 +648,7 @@ impl Migrator {
         ))?;
         p.note(format!("This should be a location that the kmip2pkcs11 instance{plural} will have read access to."))?;
         p.println("")?;
-        if k2p_conf_paths.len() == 1 {
+        if !have_multiple_k2p_configs {
             if let Some(signer) = o_conf.signer.as_ref() {
                 if let Some(Privileges {
                     user: Some(user), ..
@@ -662,6 +663,22 @@ impl Migrator {
         // TODO: Should the copied files be chown'd to the kmip2pkcs11 user?
         p.code_block("sh", format!("sudo cp {k2p_dir}/*.toml /etc/kmip2pkcs11/"))?;
 
+        if have_multiple_k2p_configs {
+            p.next_step()?;
+            p.println("Create additional kmip2pkcs11 systemd units.")?;
+            p.println(indoc::indoc!{"
+                If using systemd to control kmip2pkcs11 you will need to create separate kmip2pkcs11 units for each of the following kmip2pkcs11 configuration files.
+                Each systemd kmip2pkcs11 unit should invoke kmi2pkcs11 with `--config` specifying its own kmi2pkcs11 configuration file.
+            "})?;
+            for k2p_conf_path in k2p_conf_paths {
+                let file_name = Path::new(&k2p_conf_path).file_name().unwrap();
+                p.println(format!(
+                    "  - /etc/kmip2pkcs11/{}",
+                    file_name.to_str().unwrap()
+                ))?;
+            }
+        }
+
         p.next_step()?;
         p.println("Stop OpenDNSSEC.")?;
         p.warning("Executing this command will SHUTDOWN your OpenDNSSEC instance.")?;
@@ -671,15 +688,15 @@ impl Migrator {
         p.code_block("sh", "sudo ods-control stop")?;
 
         p.next_step()?;
-        p.println("Start kmip2pkcs11 once for each HSM to be connected to.")?;
-        if k2p_conf_paths.len() > 1 {
-            p.note("If using systemd to control kmip2pkcs11 you will need to create separate kmip2pkcs11 units for each kmip2pkcs11 configuration file.")?;
-            p.println("")?;
-        }
-        if k2p_conf_paths.len() == 1 {
+        if have_multiple_k2p_configs {
+            p.println("Start kmip2pkcs11 once for each HSM to be connected to.")?;
+            p.println("If using systemd to control kmip2pkcs11, start each of the kmip2pkcs11 units that you created above.")?;
+        } else {
+            p.println("Start kmip2pkcs11.")?;
+            p.println("If using systemd:")?;
             p.code_block("sh", "sudo systemctl start kmip2pkcs11")?;
-            p.println("OR")?;
         }
+        p.println("Otherwise:")?;
         let mut start_cmds = String::new();
         for k2p_conf_path in k2p_conf_paths {
             let file_name = Path::new(&k2p_conf_path).file_name().unwrap();
