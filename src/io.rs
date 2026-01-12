@@ -63,7 +63,6 @@ mod inner {
     use std::io::Write;
     use std::path::Path;
 
-    use domain::base::scan::ScannerError;
     use fs_err::File;
 
     use crate::io::FsOps;
