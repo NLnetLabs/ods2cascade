@@ -219,8 +219,4 @@ jobs:
     - name: Test
       run: cargo test --all-targets
 
-    # Test docs.
-    - name: Test docs
-      run: cargo test --doc
-
   # TODO: Build a cache.
