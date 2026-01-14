@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+// Based on: https://github.com/opendnssec/opendnssec/blob/2.1.14/conf/conf.rnc
 pub mod conf {
     use serde::Deserialize;
 
@@ -253,6 +254,7 @@ pub mod conf {
     pub struct Sqlite(pub String);
 }
 
+// Based on: https://github.com/opendnssec/opendnssec/blob/2.1.14/conf/zonelist.rnc
 pub mod zone_list {
     use serde::Deserialize;
 
@@ -321,6 +323,7 @@ pub mod zone_list {
     }
 }
 
+// Based on: https://github.com/opendnssec/opendnssec/blob/2.1.14/conf/addns.rnc
 pub mod addns {
     use serde::Deserialize;
 
@@ -406,8 +409,11 @@ pub mod addns {
     }
 }
 
+// Based on: https://github.com/opendnssec/opendnssec/blob/2.1.14/conf/kasp.rnc
 pub mod kasp {
     use serde::Deserialize;
+
+    use crate::schema::xml::common::{Denial, Signatures, ZoneSoa};
 
     #[derive(Debug, Deserialize)]
     #[serde(rename_all = "PascalCase")]
@@ -429,18 +435,6 @@ pub mod kasp {
         pub keys: Keys,
         pub zone: Zone,
         pub parent: Parent,
-    }
-
-    #[derive(Debug, Deserialize)]
-    #[serde(rename_all = "PascalCase")]
-    pub struct Signatures {
-        pub resign: String,
-        pub refresh: String,
-        pub validity: Validity,
-        pub jitter: String,
-        pub inception_offset: String,
-        #[serde(rename = "MaxZoneTTL")]
-        pub max_zone_ttl: Option<MaxZoneTTL>,
     }
 
     #[derive(Debug, Deserialize)]
@@ -469,62 +463,6 @@ pub mod kasp {
         #[serde(rename = "SOA")]
         pub soa: Soa,
         pub registration_delay: Option<RegistrationDelay>,
-    }
-
-    #[derive(Debug, Deserialize)]
-    #[serde(rename_all = "PascalCase")]
-    pub struct Validity {
-        pub default: String,
-        pub denial: String,
-        #[serde(default)]
-        pub keyset: Option<String>,
-    }
-
-    #[derive(Debug, Deserialize)]
-    #[serde(rename_all = "PascalCase")]
-    pub struct Denial {
-        #[serde(rename = "$value")]
-        pub denial: DenialEnum,
-    }
-
-    #[derive(Debug, Deserialize)]
-    #[allow(non_camel_case_types)]
-    pub enum DenialEnum {
-        #[serde(rename = "NSEC")]
-        nsec(Nsec),
-        #[serde(rename = "NSEC3")]
-        nsec3(Nsec3),
-    }
-
-    #[derive(Debug, Deserialize)]
-    #[serde(rename_all = "PascalCase")]
-    pub struct Nsec;
-
-    #[derive(Debug, Deserialize)]
-    #[serde(rename_all = "PascalCase")]
-    pub struct Nsec3 {
-        #[serde(rename = "TTL")]
-        pub ttl: Option<String>,
-        pub opt_out: Option<()>,
-        pub resalt: String,
-        pub hash: Hash,
-    }
-
-    #[derive(Debug, Deserialize)]
-    #[serde(rename_all = "PascalCase")]
-    pub struct Hash {
-        pub algorithm: u8,
-        pub iterations: u16,
-        pub salt: Salt,
-    }
-
-    #[derive(Debug, Deserialize)]
-    #[serde(rename_all = "PascalCase")]
-    pub struct Salt {
-        #[serde(rename = "@length")]
-        pub length: String, // TODO: should actually be u8
-        #[serde(rename = "$value", default)]
-        pub salt: String,
     }
 
     // #[derive(Debug, Deserialize)]
@@ -631,41 +569,9 @@ pub mod kasp {
 
     #[derive(Debug, Deserialize)]
     #[serde(rename_all = "PascalCase")]
-    pub struct ZoneSoa {
-        #[serde(rename = "TTL")]
-        pub ttl: String,
-        pub minimum: String,
-        #[serde(rename = "Serial")]
-        pub serial: Serial,
-    }
-
-    #[derive(Debug, Deserialize)]
-    #[serde(rename_all = "PascalCase")]
     pub struct Ds {
         #[serde(rename = "TTL")]
         pub ttl: String,
-    }
-
-    #[derive(Debug, Deserialize)]
-    #[serde(rename_all = "PascalCase")]
-    pub struct Serial {
-        #[serde(rename = "$text")]
-        pub serial: SerialEnum,
-    }
-
-    #[derive(Debug, Deserialize)]
-    #[allow(non_camel_case_types)]
-    pub enum SerialEnum {
-        counter,
-        datecounter,
-        unixtime,
-        keep,
-    }
-
-    #[derive(Debug, Deserialize)]
-    pub struct MaxZoneTTL {
-        #[serde(rename = "$value")]
-        pub duration: String,
     }
 
     #[derive(Debug, Deserialize)]
@@ -684,5 +590,180 @@ pub mod kasp {
     pub struct Partial {
         #[serde(rename = "$value")]
         pub empty: (),
+    }
+}
+
+// Based on: https://github.com/opendnssec/opendnssec/blob/2.1.14/conf/signconf.rnc
+pub mod signconf {
+    use serde::Deserialize;
+
+    use crate::schema::xml::common::{Denial, Signatures, ZoneSoa};
+
+    #[derive(Debug, Deserialize)]
+    #[serde(rename_all = "PascalCase")]
+    pub struct SignerConfiguration {
+        pub zone: Zone,
+    }
+
+    #[derive(Debug, Deserialize)]
+    #[serde(rename_all = "PascalCase")]
+    pub struct Zone {
+        #[serde(rename = "@name")]
+        pub name: String,
+        #[serde(default)]
+        pub passthrough: Option<()>,
+        pub signatures: Signatures,
+        pub denial: Denial,
+        pub keys: Keys,
+        #[serde(rename = "SOA")]
+        pub soa: ZoneSoa,
+    }
+
+    #[derive(Debug, Deserialize)]
+    #[serde(rename_all = "PascalCase")]
+    pub struct Keys {
+        #[serde(rename = "TTL")]
+        pub ttl: String,
+        #[serde(rename = "Key")]
+        pub keys: Vec<Key>,
+        #[serde(default)]
+        pub signature_resource_record: Vec<String>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    #[serde(rename_all = "PascalCase")]
+    pub struct Key {
+        pub flags: Flags,
+        pub algorithm: Algorithm,
+        #[serde(default)]
+        pub locator: Option<String>,
+        #[serde(default)]
+        pub resource_record: Option<String>,
+        #[serde(default, rename = "KSK")]
+        pub ksk: Option<()>,
+        #[serde(default, rename = "ZSK")]
+        pub zsk: Option<()>,
+        #[serde(default)]
+        pub publish: Option<()>,
+        #[serde(default)]
+        pub deactivate: Option<()>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    #[serde(rename_all = "PascalCase")]
+    pub struct Flags {
+        #[serde(rename = "$text")]
+        pub value: String, // TODO: should be a u16
+    }
+
+    #[derive(Debug, Deserialize)]
+    #[serde(rename_all = "PascalCase")]
+    pub struct Algorithm {
+        #[serde(rename = "$text")]
+        pub value: String, // TODO: should be a u8
+    }
+}
+
+pub mod common {
+    use serde::Deserialize;
+
+    #[derive(Debug, Deserialize)]
+    #[serde(rename_all = "PascalCase")]
+    pub struct Signatures {
+        pub resign: String,
+        pub refresh: String,
+        pub validity: Validity,
+        pub jitter: String,
+        pub inception_offset: String,
+        #[serde(rename = "MaxZoneTTL")]
+        pub max_zone_ttl: Option<MaxZoneTTL>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    #[serde(rename_all = "PascalCase")]
+    pub struct Validity {
+        pub default: String,
+        pub denial: String,
+        #[serde(default)]
+        pub keyset: Option<String>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    #[serde(rename_all = "PascalCase")]
+    pub struct Denial {
+        #[serde(rename = "$value")]
+        pub denial: DenialEnum,
+    }
+
+    #[derive(Debug, Deserialize)]
+    #[allow(non_camel_case_types)]
+    pub enum DenialEnum {
+        #[serde(rename = "NSEC")]
+        nsec(Nsec),
+        #[serde(rename = "NSEC3")]
+        nsec3(Nsec3),
+    }
+
+    #[derive(Debug, Deserialize)]
+    #[serde(rename_all = "PascalCase")]
+    pub struct Nsec;
+
+    #[derive(Debug, Deserialize)]
+    #[serde(rename_all = "PascalCase")]
+    pub struct Nsec3 {
+        #[serde(rename = "TTL")]
+        pub ttl: Option<String>,
+        pub opt_out: Option<()>,
+        pub resalt: String,
+        pub hash: Hash,
+    }
+
+    #[derive(Debug, Deserialize)]
+    #[serde(rename_all = "PascalCase")]
+    pub struct Hash {
+        pub algorithm: u8,
+        pub iterations: u16,
+        pub salt: Salt,
+    }
+
+    #[derive(Debug, Deserialize)]
+    #[serde(rename_all = "PascalCase")]
+    pub struct Salt {
+        #[serde(rename = "@length")]
+        pub length: String, // TODO: should actually be u8
+        #[serde(rename = "$value", default)]
+        pub salt: String,
+    }
+
+    #[derive(Debug, Deserialize)]
+    pub struct MaxZoneTTL {
+        #[serde(rename = "$value")]
+        pub duration: String,
+    }
+
+    #[derive(Debug, Deserialize)]
+    #[serde(rename_all = "PascalCase")]
+    pub struct ZoneSoa {
+        #[serde(rename = "TTL")]
+        pub ttl: String,
+        pub minimum: String,
+        #[serde(rename = "Serial")]
+        pub serial: Serial,
+    }
+
+    #[derive(Debug, Deserialize)]
+    #[serde(rename_all = "PascalCase")]
+    pub struct Serial {
+        #[serde(rename = "$text")]
+        pub serial: SerialEnum,
+    }
+
+    #[derive(Debug, Deserialize)]
+    #[allow(non_camel_case_types)]
+    pub enum SerialEnum {
+        counter,
+        datecounter,
+        unixtime,
+        keep,
     }
 }
