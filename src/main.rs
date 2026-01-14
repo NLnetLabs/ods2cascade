@@ -376,14 +376,21 @@ impl Migrator {
                 );
             };
 
-            let hsm_server_id = if o_repo.module.to_lowercase().contains("softhsm") {
-                println!(
-                    "  NOTE: Future keys for policy '{o_pol_name}' will be generated on-disk instead of using SoftHSM as they are equally secure but much faster when signing."
-                );
-                None
-            } else {
-                Some(o_repo.name.clone())
-            };
+            // TODO: Re-enable this once Cascade supports adding a zone
+            // that uses HSM keys (as all zones imported from OpenDNSSEC do)
+            // without also requiring that it generate new keys using that
+            // HSM. The underlying dnst keyset functionality *does* support
+            // this AFAIK, so this is just an issue with the way Cascade
+            // interacts with dnst keyset.
+            // let hsm_server_id = if o_repo.module.to_lowercase().contains("softhsm") {
+            //     println!(
+            //         "  NOTE: Future keys for policy '{o_pol_name}' will be generated on-disk instead of using SoftHSM as they are equally secure but much faster when signing."
+            //     );
+            //     None
+            // } else {
+            //     Some(o_repo.name.clone())
+            // };
+            let hsm_server_id = Some(o_repo.name.clone());
 
             let o_adapter = addns_path.as_ref().and_then(|addns_path| {
                 o_adapter_by_addns_path
