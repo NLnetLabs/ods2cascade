@@ -431,18 +431,15 @@ impl Migrator {
             };
 
             let mut source = zone.adapters.input.adapter.path.clone();
-            if let Some(o_adapter) = o_adapter_by_addns_path.get(&zone.adapters.input.adapter.path)
+            if let Some(o_adapter) = o_adapter_by_addns_path.get(&zone.adapters.input.adapter.path) &&
+               let Some(inbound) = &o_adapter.dns.inbound &&
+               let Some(rt) = &inbound.request_transfer &&
+               // We only support the first source address.
+               let Some(remote) = rt.remote.first()
             {
-                if let Some(inbound) = &o_adapter.dns.inbound {
-                    if let Some(rt) = &inbound.request_transfer {
-                        // We only support the first source address.
-                        if let Some(remote) = rt.remote.first() {
-                            let port = remote.port.unwrap_or(53);
-                            let ip_addr = IpAddr::from_str(&remote.address)?;
-                            source = format!("{ip_addr}:{port}");
-                        }
-                    }
-                }
+                let port = remote.port.unwrap_or(53);
+                let ip_addr = IpAddr::from_str(&remote.address)?;
+                source = format!("{ip_addr}:{port}");
             }
 
             // TODO: Adding the zone can fail if the zone file is readable by
@@ -627,15 +624,14 @@ impl Migrator {
         p.println("Copy the kmi2pkcs11 configuration files to the proper location.")?;
         if k2p_conf_paths.len() > 1 {
             p.note("This should be a location that the kmip2pkcs11 instances will have read access to.")?;
-        } else if let Some(signer) = o_conf.signer.as_ref() {
-            if let Some(Privileges {
+        } else if let Some(signer) = o_conf.signer.as_ref()
+            && let Some(Privileges {
                 user: Some(user), ..
             }) = &signer.privileges
-            {
-                p.note(format!(
+        {
+            p.note(format!(
                     "Your kmip2pkcs11 instance will run as user '{user}' thus the kmip2pkcs11 configuration file should be readable by this user."
                 ))?;
-            }
         }
         // TODO: Should the copied files be chown'd to the kmip2pkcs11 user?
         p.code_block("sh", format!("sudo cp {k2p_dir}/*.toml /etc/kmip2pkcs11/"))?;
@@ -831,12 +827,12 @@ fn create_cascade_policy(
     }
 
     let zsk = kasp.keys.zsks.first();
-    if let Some(key) = zsk {
-        if let Some(algorithm) = &algorithm {
-            let zsk_algorithm = alg_to_key_parameters(Key::Zsk(key));
-            if zsk_algorithm != *algorithm {
-                bail!("Unsupported: ZSK algorithm ({zsk_algorithm}) != KSK algorithm ({algorithm})",)
-            }
+    if let Some(key) = zsk
+        && let Some(algorithm) = &algorithm
+    {
+        let zsk_algorithm = alg_to_key_parameters(Key::Zsk(key));
+        if zsk_algorithm != *algorithm {
+            bail!("Unsupported: ZSK algorithm ({zsk_algorithm}) != KSK algorithm ({algorithm})",)
         }
     }
 
@@ -849,15 +845,15 @@ fn create_cascade_policy(
     }
 
     let mut send_notify_to = vec![];
-    if let Some(output) = output {
-        if let Some(notify) = &output.notify {
-            for remote in &notify.remote {
-                let port = remote.port.unwrap_or(53);
-                let ip_addr = IpAddr::from_str(&remote.address)?;
-                let addr = SocketAddr::new(ip_addr, port);
-                let comms_policy = NameserverCommsPolicy { addr };
-                send_notify_to.push(comms_policy);
-            }
+    if let Some(output) = output
+        && let Some(notify) = &output.notify
+    {
+        for remote in &notify.remote {
+            let port = remote.port.unwrap_or(53);
+            let ip_addr = IpAddr::from_str(&remote.address)?;
+            let addr = SocketAddr::new(ip_addr, port);
+            let comms_policy = NameserverCommsPolicy { addr };
+            send_notify_to.push(comms_policy);
         }
     }
 
@@ -1022,18 +1018,18 @@ fn parse_ods_ts_fragment<T: Fn(usize) -> bool>(
     #[allow(non_snake_case)] X: &mut &[u8],
     filter: T,
 ) -> Option<u32> {
-    if let Some(idx) = X.iter().position(|c| *c == unit as u8) {
-        if (filter)(idx) {
-            let str = &X[..idx];
-            let (rest, Some(v)) = atoi_with_rest(str) else {
-                panic!(
-                    "Invalid OpenDNSSEC timestamp string '{timestamp}': invalid {unit_name} {}",
-                    String::from_utf8(str.to_vec()).unwrap()
-                );
-            };
-            *X = rest;
-            return Some(v);
-        }
+    if let Some(idx) = X.iter().position(|c| *c == unit as u8)
+        && (filter)(idx)
+    {
+        let str = &X[..idx];
+        let (rest, Some(v)) = atoi_with_rest(str) else {
+            panic!(
+                "Invalid OpenDNSSEC timestamp string '{timestamp}': invalid {unit_name} {}",
+                String::from_utf8(str.to_vec()).unwrap()
+            );
+        };
+        *X = rest;
+        return Some(v);
     }
     None
 }
@@ -1238,13 +1234,13 @@ mod test {
         for entry in std::fs::read_dir(&test_dir)? {
             let entry = entry?;
             let path = entry.path();
-            if !path.is_dir() {
-                if let Some(fname) = path.file_name() {
-                    let fname = Path::new(fname);
-                    let content = std::fs::read_to_string(&path)?;
-                    input_paths.insert(fname.to_path_buf());
-                    io.register_file(fname, content);
-                }
+            if !path.is_dir()
+                && let Some(fname) = path.file_name()
+            {
+                let fname = Path::new(fname);
+                let content = std::fs::read_to_string(&path)?;
+                input_paths.insert(fname.to_path_buf());
+                io.register_file(fname, content);
             }
         }
 
