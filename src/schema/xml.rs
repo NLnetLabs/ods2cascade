@@ -96,7 +96,7 @@ pub mod conf {
     #[serde(rename_all = "PascalCase")]
     pub struct Enforcer {
         #[serde(default)]
-        pub privs: Option<Privileges>,
+        pub privileges: Option<Privileges>,
         pub datastore: Datastore,
         #[serde(default)]
         pub manual_key_generation: Option<()>,
@@ -143,7 +143,7 @@ pub mod conf {
     #[derive(Debug, Deserialize)]
     #[serde(rename_all = "PascalCase")]
     pub struct Signer {
-        privs: Option<Privileges>,
+        pub privileges: Option<Privileges>,
         #[serde(default = "Signer::default_working_directory")]
         pub working_directory: String,
         #[serde(default = "Signer::default_worker_threads")]
@@ -198,20 +198,11 @@ pub mod conf {
         test(String),
     }
 
-    #[derive(Debug, Deserialize)]
+    #[derive(Debug, Default, Deserialize)]
     #[serde(rename_all = "PascalCase")]
     pub struct Listener {
         #[serde(default)]
         pub interfaces: Vec<Interface>,
-    }
-
-    impl Default for Listener {
-        fn default() -> Self {
-            Self {
-                // From OpenDNSSEC conf.rnc
-                interfaces: vec![Interface::new("".to_string(), 15534)],
-            }
-        }
     }
 
     #[derive(Debug, Deserialize)]
