@@ -1609,7 +1609,7 @@ dependencies = [
 
 [[package]]
 name = "ods2cascade"
-version = "0.1.0"
+version = "0.1.0-alpha1"
 dependencies = [
  "anyhow",
  "atoi",
