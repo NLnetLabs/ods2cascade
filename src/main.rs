@@ -184,7 +184,7 @@ impl Migrator {
         let o_zone_list: ZoneList = process_xml(&xml)?;
 
         // Verify that we can connect to the Enforcer database.
-        let mut db_conn = DbConn::new(&o_conf.enforcer.datastore.datastore).await?;
+        let mut db_conn = DbConn::new(&o_conf.enforcer.datastore.datastore, io).await?;
         let db_version = db_conn.db_version().await?;
         println!("Found Enforcer database version: {}", db_version.version);
 
@@ -201,9 +201,7 @@ impl Migrator {
             .collect::<BTreeSet<_>>();
         let diff: Vec<_> = db_zone_names.difference(&zones_file_zone_names).collect();
         if !diff.is_empty() {
-            let mut err = format!(
-                "The set of zones defined in the Enforcer zones.xml file differs to that of the Enforcer database:\n"
-            );
+            let mut err = "The set of zones defined in the Enforcer zones.xml file differs to that of the Enforcer database:\n".to_string();
             err.push_str("  Database :");
             for zone_name in db_zone_names {
                 err.push(' ');
@@ -227,9 +225,7 @@ impl Migrator {
             .map(|z| z.name.clone())
             .collect::<Vec<_>>();
         if !db_zones_pending_signconf_write.is_empty() {
-            let mut err = format!(
-                "One or more zones have the signconfNeedsWriting flag set in the Enforcer database:"
-            );
+            let mut err = "One or more zones have the signconfNeedsWriting flag set in the Enforcer database:".to_string();
             for zone_name in db_zones_pending_signconf_write {
                 err.push(' ');
                 err.push_str(&zone_name);
@@ -1152,7 +1148,7 @@ struct TestDbSnapshot {
 
 impl DbConn {
     #[cfg(not(test))]
-    async fn new(datastore: &DatastoreEnum) -> Result<DbConn, sqlx::Error> {
+    async fn new<IO: FsOps>(datastore: &DatastoreEnum, _io: &IO) -> Result<DbConn, sqlx::Error> {
         match datastore {
             DatastoreEnum::mysql(Mysql {
                 host,
