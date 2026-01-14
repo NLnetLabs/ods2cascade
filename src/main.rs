@@ -218,7 +218,6 @@ impl Migrator {
         }
 
         // Verify that all of the signconf XML files have been written to disk.
-        dbg!(&db_zones);
         let db_zones_pending_signconf_write = db_zones
             .iter()
             .filter(|z| z.signconf_needs_writing)
