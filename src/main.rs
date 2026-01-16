@@ -486,32 +486,20 @@ impl Migrator {
                 {
                     let flags = u16::from_str(&key.flags.value).unwrap();
                     let algorithm = u8::from_str(&key.algorithm.value).unwrap();
-                    match (key.ksk, key.zsk) {
-                        (None, None) => { /* Skip */ }
-                        (None, Some(_)) => {
-                            keys_to_import.push(KeyToImport {
-                                locator: locator.clone(),
-                                flags,
-                                algorithm,
-                                key_type: KeyType::Zsk,
-                            });
-                        }
-                        (Some(_), None) => {
-                            keys_to_import.push(KeyToImport {
-                                locator: locator.clone(),
-                                flags,
-                                algorithm,
-                                key_type: KeyType::Ksk,
-                            });
-                        }
-                        (Some(_), Some(_)) => {
-                            keys_to_import.push(KeyToImport {
-                                locator: locator.clone(),
-                                flags,
-                                algorithm,
-                                key_type: KeyType::Csk,
-                            });
-                        }
+                    let key_type = match (key.ksk, key.zsk) {
+                        (None, None) => None,
+                        (None, Some(_)) => Some(KeyType::Zsk),
+                        (Some(_), None) => Some(KeyType::Ksk),
+                        (Some(_), Some(_)) => Some(KeyType::Csk),
+                    };
+
+                    if let Some(key_type) = key_type {
+                        keys_to_import.push(KeyToImport {
+                            locator: locator.clone(),
+                            flags,
+                            algorithm,
+                            key_type,
+                        });
                     }
                 }
             }
