@@ -23,7 +23,7 @@ Progress:
     - [x] Handle the 2:1 mapping of separate but related OpenDNSSEC KASP policy and ADDNS XML files onto single Cascade policy files.
   - [x] Generate Cascade policy files by serializing Cascade data types.
   - [x] Generate `kmip2pkcs11` configuration for each OpenDNSSEC "Repository".
-  - [ ] -Generate Cascade configuration.- BLOCKED, see [#36](https://github.com/NLnetLabs/ods2cascade/pull/36), 
+  - [ ] Generate Cascade configuration. BLOCKED, see [#36](https://github.com/NLnetLabs/ods2cascade/pull/36), 
   - [x] Generate a shell script containing the sequence of commands needed to: - NOTE: Now generates a `README.md`.
     - [x] Install generated Cascade policy files.
     - [x] Instruct Cascade to reload policy.
