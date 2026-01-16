@@ -477,7 +477,8 @@ impl Migrator {
             io.dbg_to_file(&sign_conf, &format!("sign_conf_{safe_zone_name}"), &dbg_dir)?;
 
             // Extract the KSK and ZSK keys that have <Publish/> set.
-            // TODO: Add support for keys with no locatgeor but with a resource_record field set instead.
+            // TODO: Add support for keys with no locator but with a
+            // resource_record field set instead?
             let mut keys_to_import = vec![];
             for key in &sign_conf.zone.keys.keys {
                 if key.publish.is_some()
