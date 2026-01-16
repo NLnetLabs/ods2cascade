@@ -570,7 +570,7 @@ impl Migrator {
               - Use of sudo or not.
               - Use of SELinux or AppArmor.
             
-            The end result of following the suggested steps, once adjusted for your particular setup, will be that the OpenDNSSEC process no longer runs, communicates with your HSM, signs or serves zones, instead these will all be handled by Cascade instead.
+            The end result of following the suggested steps, once adjusted for your particular setup, will be that the OpenDNSSEC process no longer runs, communicates with your HSM, signs or serves zones, instead these will all be handled by Cascade.
             
             Note that there may still be tasks remaining after migration that are specific to your setup, including but not limited to:
             
