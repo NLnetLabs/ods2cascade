@@ -556,11 +556,12 @@ impl Migrator {
                         KeyType::Csk => cmd += "--import-csk-kmip ",
                     }
 
-                    // The signconf has the CKA_ID locator for the key but doesn't say
-                    // which ODS HSM repisitory contains the key, as ODS will just try
-                    // all known repositories to find the key. Cascade can't do that so
-                    // we need to know which repository it should be in. We get that
-                    // from the zone policy.
+                    // The signconf has the CKA_ID locator for the key but
+                    // doesn't say which ODS HSM repisitory contains the key,
+                    // as ODS will just try all known repositories to find
+                    // the key. Cascade can't do that so we need to know which
+                    // repository it should be in. We get that from the zone
+                    // policy.
                     let cascaded::policy::file::Spec::V1(c_pol) =
                         c_pol_by_c_pol_name.get(c_pol_name).unwrap();
                     let hsm_server_id =
