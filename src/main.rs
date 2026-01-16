@@ -555,6 +555,7 @@ impl Migrator {
                 source = format!("{ip_addr}:{port}");
             }
 
+            // Construct the `cascade zone add` command to emit.
             let mut cmd =
                 format!("cascade {c_cli_args} zone add --policy {c_pol_name} --source {source} ");
 
@@ -576,16 +577,26 @@ impl Migrator {
                     let hsm_server_id =
                         c_pol.key_manager.generation.hsm_server_id.as_ref().unwrap();
 
-                    // Note: We use the single locator CKA_ID as both the
-                    // public and private key ID for import to Cascade. While
-                    // these are in principle KMIP unique identifiers that
-                    // should be different for the public and private "halves"
-                    // of the key, with PKCS#11 it is common (and is true
-                    // for OpenDNSSEC) that both halves have the same PKCS#11
-                    // CKA_ID.
+                    // OpenDNSSEC generates public/private keys which both
+                    // have the same CKA_ID. KMIP however requires these
+                    // two identifiers to be unique. kmip2pkcs11 handles
+                    // this need for uniqueness by suffixing the keys with
+                    // _pub and _priv respectively, but usually this mapping
+                    // process is inviisble to the user of kmip2pkcs11 as
+                    // they only see the generated KMIP IDs, not the internal
+                    // CKA_IDs. As in this case the keys were not created
+                    // by kmip2pkcs11 we have to "uniqify" them ourselves
+                    // before passing them to Cascade which in turn will pass
+                    // them to kmip2pkcs11. It may be possible in future to
+                    // provide CKA_IDs, but not at the time of writing. See
+                    // https://github.com/NLnetLabs/kmip2pkcs11/pull/24 for
+                    // more information.
+                    let public_id = format!("{}_pub", key.locator);
+                    let private_id = format!("{}_priv", key.locator);
+
                     cmd += &format!(
-                        "{hsm_server_id} {} {} {} {} ",
-                        key.locator, key.locator, key.algorithm, key.flags
+                        "{hsm_server_id} {public_id} {private_id} {} {} ",
+                        key.algorithm, key.flags
                     );
                 }
             }
