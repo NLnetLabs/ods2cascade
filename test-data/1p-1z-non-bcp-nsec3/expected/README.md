@@ -24,6 +24,7 @@ Note that there may still be tasks remaining after migration that are specific t
 
 > [!WARNING]
 > - Signed zones will NOT be written to disk. Cascade only supports publication of signed zones via XFR. You will need a secondary nameserver or some other tool receive/fetch new signed zone versions via XFR.
+> - Cascade only supports [RFC 9276/BCP 236](https://datatracker.ietf.org/doc/rfc9276/) NSEC3 parameter settings: 0 iterations, no salt. At least one zone was detected that uses non-BCP iteration and salt settings. Affected zones will be signed by Cascade using BCP iteration and salt settings.
 
 
 ## Migration steps
