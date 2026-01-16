@@ -15,23 +15,23 @@ Progress:
   - [x] Read **well-formed** OpenDNSSEC `conf.xml`, `kasp.xml`, `addns.xml`, `zonelist.xml`, `zones.xml` and `signconf.xml` files.
   - [x] Read **well-formed** Cascade config TOML file.
   - [x] Read **well-formed** SQLite/MySQL Enforcer database fields.
-  - [ ] Determine the set of PKCS#11 keys to import.
-  - [ ] Read HSM configuration from OpenDNSSEC configuration.
+  - [x] Determine the set of PKCS#11 keys to import.
+  - [x] Read HSM configuration from OpenDNSSEC configuration.
   - [x] Read database configuration from OpenDNSSEC configuration.
   - [ ] Determine the OpenDNSSEC source of truth to use for each Cascade setting to be configured.
   - [ ] Determine how to map any concepts in OpenDNSSEC that have exactly corresponding counterparts in Cascade.
     - [x] Handle the 2:1 mapping of separate but related OpenDNSSEC KASP policy and ADDNS XML files onto single Cascade policy files.
   - [x] Generate Cascade policy files by serializing Cascade data types.
-  - [ ] Generate `kmip2pkcs11` configuration for each OpenDNSSEC "Repository".
-  - [ ] Generate Cascade configuration.
-  - [ ] Generate a shell script containing the sequence of commands needed to:
+  - [x] Generate `kmip2pkcs11` configuration for each OpenDNSSEC "Repository".
+  - [ ] -Generate Cascade configuration.- BLOCKED, see [#36](https://github.com/NLnetLabs/ods2cascade/pull/36), 
+  - [x] Generate a shell script containing the sequence of commands needed to: - NOTE: Now generates a `README.md`.
     - [x] Install generated Cascade policy files.
     - [x] Instruct Cascade to reload policy.
-    - [ ] Instruct Cascade to add HSMs.
-    - [ ] Instruct Cascade to add zones
+    - [x] Instruct Cascade to add HSMs.
+    - [x] Instruct Cascade to add zones
       - [x] Using the correct policy.
       - [x] Using the correct HSM.
-      - [ ] Using the correct keys.
+      - [x] Using the correct keys.
 
 # Usage
 
@@ -47,4 +47,6 @@ When invoked `ods2cascade` will:
   - Read the specified Cascade configuration file.
   - Read the specified OpenDNSSEC configuration and any files that references.
   - Query the specified OpenDNSSEC Enforcer database using the connection details specified in the OpenDNSSEC configuration.
-  - Generate Cascade policy, configuration and migration shell script files in the specified output directory.
+  - Generate Cascade configuration and policy files.
+  - Generate `kmip2pkcs11` configuration files.
+  - Generate a `README.md` containing instructions and shell commands required to complete the migration.
