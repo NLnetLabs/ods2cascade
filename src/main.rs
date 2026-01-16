@@ -572,7 +572,7 @@ impl Migrator {
                     // two identifiers to be unique. kmip2pkcs11 handles
                     // this need for uniqueness by suffixing the keys with
                     // _pub and _priv respectively, but usually this mapping
-                    // process is inviisble to the user of kmip2pkcs11 as
+                    // process is invisible to the user of kmip2pkcs11 as
                     // they only see the generated KMIP IDs, not the internal
                     // CKA_IDs. As in this case the keys were not created
                     // by kmip2pkcs11 we have to "uniqify" them ourselves
