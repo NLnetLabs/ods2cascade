@@ -35,7 +35,7 @@ Progress:
 
 # Usage
 
-`ods2cascade` requires that both Cascade and `kmip2pkcs11` (if needed, see #22) already be installed.
+`ods2cascade` requires that Cascade already be installed.
 
 `ods2cascade` requires three filesystem paths as input:
 
@@ -50,3 +50,4 @@ When invoked `ods2cascade` will:
   - Generate Cascade configuration and policy files.
   - Generate `kmip2pkcs11` configuration files.
   - Generate a `README.md` containing instructions and shell commands required to complete the migration.
+  - Generate a `commands.sh` file which contains Cascade CLI commands to automate setup of Casacde, once the steps in the generated `README.md` steps have been followed.
