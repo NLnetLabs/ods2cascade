@@ -242,7 +242,7 @@ impl Migrator {
                 .map(|adapter| &adapter.dns.outbound)
                 .is_none()
             {
-                eprintln!("Zone '{}' will be ignored as it has output adapter type DNS but lacks an Outboun configuration and thus will never be written to disk or served via XFR.", o_zone.name);
+                eprintln!("Zone '{}' will be ignored as it has output adapter type DNS but lacks an Outbound configuration and thus will never be written to disk or served via XFR.", o_zone.name);
                 return None;
             }
 
