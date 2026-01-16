@@ -9,7 +9,7 @@ A tool for assisting operators with migration from OpenDNSSEC to [Cascade](https
 
 # Status
 
-Not yet working, very early prototype.
+Able to handle migration of some simple OpenDNSSEC setups.
 
 Progress:
   - [x] Read **well-formed** OpenDNSSEC `conf.xml`, `kasp.xml`, `addns.xml`, `zonelist.xml`, `zones.xml` and `signconf.xml` files.
