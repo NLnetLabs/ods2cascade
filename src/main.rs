@@ -207,6 +207,9 @@ impl Migrator {
         // Does ODS use non-BCP 236/RFC 9276 NSEC3 salt or iteration settings?
         let mut o_uses_non_bcp_nsec3_settings = false;
 
+        // Does ODS use non-zero jitter?
+        let mut o_uses_jitter = false;
+
         // So for each combination of ODS policy and zone output adapter we need
         // a different Cascade policy.
         //
@@ -409,6 +412,9 @@ impl Migrator {
                     || !nsec3.hash.salt.salt.is_empty();
             }
 
+            let ods_jitter = parse_ods_ts(&kasp.signatures.jitter);
+            o_uses_jitter |= ods_jitter > 0;
+
             // As policy saving cannot be told to use the simulated test
             // filesystem, handle the test case separately doing the main
             // things that actually policy saving does.
@@ -502,6 +508,7 @@ impl Migrator {
             &o_signer_interfaces,
             o_writes_signed_zones_to_disk,
             o_uses_non_bcp_nsec3_settings,
+            o_uses_jitter,
             &k2p_dir,
             &k2p_conf_paths,
             &db_conn,
@@ -534,6 +541,7 @@ impl Migrator {
         o_signer_interfaces: &Option<Vec<String>>,
         o_writes_signed_zones_to_disk: bool,
         o_uses_non_bcp_nsec3_settings: bool,
+        o_uses_jitter: bool,
         k2p_dir: &str,
         k2p_conf_paths: &[String],
         #[allow(unused_variables)] db_conn: &DbConn,
@@ -553,6 +561,13 @@ impl Migrator {
             writeln!(
                 &mut changes,
                 "> - Cascade only supports [RFC 9276/BCP 236](https://datatracker.ietf.org/doc/rfc9276/) NSEC3 parameter settings: 0 iterations, no salt. At least one zone was detected that uses non-BCP iteration and salt settings. Affected zones will be signed by Cascade using BCP iteration and salt settings."
+            )?;
+        }
+
+        if o_uses_jitter {
+            writeln!(
+                &mut changes,
+                "> - Cascade implements incremental signing differently than OpenDNSSEC and as such neither needs nor supports the OpenDNSSEC jitter functionality. Jitter settings will be ignored."
             )?;
         }
 
@@ -1275,6 +1290,12 @@ mod test {
     #[tokio::test]
     async fn force_nsec3_to_bcp_settings() -> anyhow::Result<()> {
         run_test("1p-1z-non-bcp-nsec3").await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn warn_about_jitter() -> anyhow::Result<()> {
+        run_test("1p-1z-with-jitter").await?;
         Ok(())
     }
 
