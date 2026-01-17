@@ -3,7 +3,7 @@
 A tool for assisting operators with migration from OpenDNSSEC to [Cascade](https://nlnetlabs.nl/cascade).
 
 `ods2cascade`:
-  - _Reads_ OpenDNSSEC files and the Enforcer Database.
+  - _Reads_ OpenDNSSEC configuration files and the Enforcer Database.
   - Does **NOT** modify any existing Cascade or OpenDNSSEC instances.
   - Outputs generated files for use with Cascade to a user-specified directory.
 
