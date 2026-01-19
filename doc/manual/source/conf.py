@@ -235,7 +235,7 @@ latex_elements = {
 # (source start file, target name, title,
 #  author, documentclass [howto, manual, or own class]).
 latex_documents = [
-    (master_doc, 'Ods2CascadeUserManual.tex', 'Cascade User Manual', author, 'manual'),
+    (master_doc, 'Ods2CascadeUserManual.tex', 'Ods2Cascade User Manual', author, 'manual'),
 ]
 
 
