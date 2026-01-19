@@ -5,7 +5,7 @@ tl;dr
 -----
 
 - Run :program:`ods2cascade`.
-- Follow the steps described in the `README.md` that it generates.
+- Follow the steps described in the ``README.md`` that it generates.
 
 This will result in both :doc:`cascade` and :doc:`kmip2pkcs11` being
 configured to behave like the OpenDNSSEC Enforcer and Signer, using the same
@@ -41,9 +41,9 @@ Assuming that OpenDNSSEC and Cascade are both installed on the same machine
 as :program:`ods2cascade` and their configuration files are in the default
 locations, we can invoke :program:`ods2cascade` like so:
 
-  ```bash
-  $ ods2cascade /etc/opendnssec/conf.xml /etc/cascade/config.toml /tmp/ods2cascade-out
-  ```
+  .. code-block:: bash
+
+     $ ods2cascade /etc/opendnssec/conf.xml /etc/cascade/config.toml /tmp/ods2cascade-out
 
 This will:
 
