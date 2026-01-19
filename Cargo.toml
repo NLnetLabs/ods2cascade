@@ -7,8 +7,8 @@ rust-version = "1.88"
 [dependencies]
 anyhow            = "1.0.100"
 atoi              = "2.0.0"
-cascaded          = { git = "https://github.com/NLnetLabs/cascade", branch = "main" }
-domain            = { git = "https://github.com/NLnetLabs/domain", branch = "main", version = "0.11.1" } # Use the same domain as cascade
+cascaded          = { git = "https://github.com/NLnetLabs/cascade", branch = "main", default-features = false }
+domain            = { git = "https://github.com/NLnetLabs/domain", branch = "main", version = "0.11.1", default-features = false } # Use the same domain as cascade
 fs-err            = "3.2.2"
 indoc = "2.0.7"
 pretty_assertions = "1.4.1"
