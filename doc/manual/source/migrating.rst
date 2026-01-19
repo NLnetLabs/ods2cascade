@@ -1,4 +1,4 @@
-Migrating from OpenDNSSEC to Cascade using :program:`ods2cascade`
-=================================================================
+Using :program:`ods2cascade`
+============================
 
 TODO
