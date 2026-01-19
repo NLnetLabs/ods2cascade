@@ -28,14 +28,15 @@ End-Of-Life, and users are encouraged to transition to its successor, Cascade.
 Understanding your OpenDNSSEC setup
 -----------------------------------
 
-To achieve a successful transition to Cascade users would need to understand
-their OpenDNSSEC setup in some detail, and extract configuration settings from
-various XML files, CLI commands and perhaps even examine the contents of the
-OpenDNSSEC database, and then understand Cascade and its configuration files
-sufficiently to map the existing OpenDNSSEC setup to an equivalent Cascade
-setup, plus understand how OpenDNSSEC was granted access to the HSM and which
-signing keys are currently in use in order to tell Cascade to use the same HSM
-and the same signing keys.
+To achieve a successful transition to Cascade users would need to:
+  - Understand their OpenDNSSEC setup in some detail.
+  - Extract configuration settings from various XML files, CLI commands and
+perhaps even examine the contents of the OpenDNSSEC database.
+  - Understand Cascade and its configuration files sufficiently to map the
+existing OpenDNSSEC setup to an equivalent Cascade setup.
+  - Understand how OpenDNSSEC was granted access to the HSM and which signing
+keys are currently in use in order to tell Cascade to use the same HSM and the
+same signing keys.
 
 This is likely a scary and overwhelming task to perform, even assuming that
 the knowledge of OpenDNSSEC has been retained in-house.
