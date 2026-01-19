@@ -69,7 +69,7 @@ Next steps
 ----------
 
  - :doc:`installation` or :doc:`building`.
- - :doc:`migrating`
+ - :doc:`using`
 
 .. toctree::
    :maxdepth: 2
@@ -79,7 +79,7 @@ Next steps
 
    installation
    building
-   migrating
+   using
 
 .. toctree::
    :maxdepth: 2
