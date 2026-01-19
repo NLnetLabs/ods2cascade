@@ -68,7 +68,7 @@ signing and publishing those zones.
 Next steps
 ----------
 
- - :doc:`installation` or doc:`building`.
+ - :doc:`installation` or :doc:`building`.
  - :doc:`migrating`
 
 .. toctree::
