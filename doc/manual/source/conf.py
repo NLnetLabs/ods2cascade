@@ -98,7 +98,7 @@ if versionbanner:
 
 intersphinx_mapping = {
     'cascade': ('https://cascade.docs.nlnetlabs.nl/en/latest/', None),
-    'kmip2pkcs11': ('https://ods2cascade.docs.nlnetlabs.nl/projects/kmip2pkcs11/en/latest/', None)
+    'kmip2pkcs11': ('https://cascade.docs.nlnetlabs.nl/projects/kmip2pkcs11/en/latest/', None)
 }
 
 # We recommend adding the following config value.
