@@ -13,7 +13,55 @@ ODS-2-Cascade
       :alt: Mastodon
       :target: https://social.nlnetlabs.nl/@nlnetlabs
 
-A command line tool to assist with migration from OpenDNSSEC to :doc:`cascade`.
+:program:`ods2cascade` is a command line tool to assist with migration from
+`OpenDNSSEC <https://www.opendnssec.org/>`_ to :doc:`cascade`.
+
+OpenDNSSEC EoL
+--------------
+
+OpenDNSSEC, launched in 2010, pioneered automated DNSSEC key management
+and zone signing. In October 2027 OpenDNSSEC will `officially
+<https://www.nlnetlabs.nl/news/2025/Oct/03/opendnssec-eol-announcement/>`_ be
+End-Of-Life, and users are encouraged to transition to its successor, Cascade.
+
+Understanding your OpenDNSSEC setup
+-----------------------------------
+
+To achieve a successful transition to Cascade users would need to understand
+their OpenDNSSEC setup in some detail, and extract configuration settings from
+various XML files, CLI commands and perhaps even examine the contents of the
+OpenDNSSEC database, and then understand Cascade and its configuration files
+sufficiently to map the existing OpenDNSSEC setup to an equivalent Cascade
+setup, plus understand how OpenDNSSEC was granted access to the HSM and which
+signing keys are currently in use in order to tell Cascade to use the same HSM
+and the same signing keys.
+
+This is likely a scary and overwhelming task to perform, even assuming that
+the knowledge of OpenDNSSEC has been retained in-house.
+
+Using :program:`ods2cascade` to simplify the transition
+-------------------------------------------------------
+
+To ease this process users can use :program:`ods2cascade` to automate the
+extraction and mapping of OpenDNSSEC configuration to an equivalent Cascade
+setup. The tool also generates tailored guidance on the step by step actions
+to take to move from OpenDNSSEC signing and publishing zones to Cascade
+signing and publishing those zones.
+
+.. Tip::
+
+   :program:`ods2cascade` will **NOT** modify your existing OpenDNSSEC
+   setup. It is designed output guidance and configuration instructions
+   to a directory of your choosing. Actually configuring Cascade, starting
+   it running and stopping OpenDNSSEC are deliberately **NOT** done by
+   :program:`ods2cascade`, instead these are steps that you must do yourself.
+
+.. Note::
+
+   Not all features of OpenDNSSEC are supported by Cascade. Running
+   :program:`ods2cascade` can be done safely without changing your current
+   setup and will abort or warn if the migration is too complex for the tool
+   or will have noteworthy consequences.
 
 .. toctree::
    :maxdepth: 2
