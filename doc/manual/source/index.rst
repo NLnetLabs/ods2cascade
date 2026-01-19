@@ -1,5 +1,5 @@
-ODS-2-Cascade
-=============
+Ods2Cascade
+===========
 
 .. only:: html
 
@@ -31,12 +31,12 @@ Understanding your OpenDNSSEC setup
 To achieve a successful transition to Cascade users would need to:
   - Understand their OpenDNSSEC setup in some detail.
   - Extract configuration settings from various XML files, CLI commands and
-perhaps even examine the contents of the OpenDNSSEC database.
+    perhaps even examine the contents of the OpenDNSSEC database.
   - Understand Cascade and its configuration files sufficiently to map the
-existing OpenDNSSEC setup to an equivalent Cascade setup.
+    existing OpenDNSSEC setup to an equivalent Cascade setup.
   - Understand how OpenDNSSEC was granted access to the HSM and which signing
-keys are currently in use in order to tell Cascade to use the same HSM and the
-same signing keys.
+    keys are currently in use in order to tell Cascade to use the same HSM and
+    the same signing keys.
 
 This is likely a scary and overwhelming task to perform, even assuming that
 the knowledge of OpenDNSSEC has been retained in-house.
@@ -65,6 +65,12 @@ signing and publishing those zones.
    setup and will abort or warn if the migration is too complex for the tool
    or will have noteworthy consequences.
 
+Next steps
+----------
+
+ - :doc:`installation` or doc:`building`.
+ - :doc:`migrating`
+
 .. toctree::
    :maxdepth: 2
    :hidden:
@@ -73,7 +79,7 @@ signing and publishing those zones.
 
    installation
    building
-   quick-start
+   migrating
 
 .. toctree::
    :maxdepth: 2
