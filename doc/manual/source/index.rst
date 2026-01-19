@@ -13,8 +13,9 @@ ODS-2-Cascade
       :alt: Mastodon
       :target: https://social.nlnetlabs.nl/@nlnetlabs
 
-:program:`ods2cascade` is a command line tool to assist with migration from
-`OpenDNSSEC <https://www.opendnssec.org/>`_ to :doc:`cascade`.
+:program:`ods2cascade` is a command line tool to assist with
+migration from `OpenDNSSEC <https://www.opendnssec.org/>`_ to `Cascade
+<https://www.nlnetlabs.nl/projects/cascade>`_.
 
 OpenDNSSEC EoL
 --------------
