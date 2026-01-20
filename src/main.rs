@@ -54,17 +54,22 @@ async fn main() {
     let prog_name = args.next().unwrap();
 
     if args.len() != 3 || args.any(|arg| arg == "--help" || arg == "-h") {
-        eprintln!(
-            "Usage: {prog_name} <path/to/cascade.toml> <path/to/opendnssec/conf.xml> <path/to/write/files/to>"
+        println!(
+            "Usage: {prog_name} [OPTIONS] <path/to/cascade.toml> <path/to/opendnssec/conf.xml> <path/to/write/files/to>"
         );
-        eprintln!();
-        eprintln!(
+        println!();
+        println!("Options:");
+        println!("  -h, --help     Print help");
+        println!("  -V, --version  Print version");
+        println!();
+        println!(
             "NOTE: This tool will NOT modify your existing OpenDNSSEC or Cascade installation."
         );
         std::process::exit(1);
     }
 
     let mut args = std::env::args();
+    let _prog_name = args.next().unwrap();
     let c_conf_toml_path = args.next().unwrap();
     let o_conf_xml_path = args.next().unwrap();
     let output_dir_path = args.next().unwrap();
