@@ -14,7 +14,9 @@
 	</Common>
 
 	<Enforcer>
-		<Datastore><SQLite>/data/home/ximon/Documents/laptop-backup/home/Documents/laptop-restore/home/ximon/Documents/code/opendnssec/upgrade-ns.nlnetlabs.nl/backup/var/opendnssec/kasp.db</SQLite></Datastore>
+		<Datastore>
+			<Test>db.ron</Test>
+		</Datastore>
 		<!-- Set an empty working directory to override the default /var/opendnssec/tmp -->
 		<WorkingDirectory/>
 	</Enforcer>
