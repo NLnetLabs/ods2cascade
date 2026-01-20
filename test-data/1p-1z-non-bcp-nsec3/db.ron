@@ -18,7 +18,7 @@
 			output_adapter_uri: "/some/nonexistent/output/zone/file",
 		),
 		Zone(
-			id: 1,
+			id: 2,
 			name: "non-empty-nsec3-salt",
 			policy_id: 1,
 			signconf_needs_writing: false,
@@ -29,7 +29,7 @@
 			output_adapter_uri: "/some/nonexistent/output/zone/file",
 		),
 		Zone(
-			id: 1,
+			id: 3,
 			name: "too-many-nsec3-iterations",
 			policy_id: 1,
 			signconf_needs_writing: false,

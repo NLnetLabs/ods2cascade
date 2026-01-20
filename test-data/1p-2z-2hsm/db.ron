@@ -8,10 +8,10 @@
 	zone: [
 		Zone(
 			id: 1,
-			name: "somezone",
+			name: "someotherzone",
 			policy_id: 1,
 			signconf_needs_writing: false,
-			signconf_path: "/some/nonexistent/signconf/file",
+			signconf_path: "signconf.xml",
 			input_adapter_type: "File",
 			input_adapter_uri: "/some/nonexistent/zone/file",
 			output_adapter_type: "File",
@@ -19,14 +19,14 @@
 		),
 		Zone(
 			id: 2,
-			name: "somezone2",
+			name: "somezone",
 			policy_id: 1,
 			signconf_needs_writing: false,
-			signconf_path: "/some/nonexistent/signconf/file",
+			signconf_path: "signconf.xml",
 			input_adapter_type: "File",
 			input_adapter_uri: "/some/nonexistent/zone/file",
 			output_adapter_type: "File",
 			output_adapter_uri: "/some/nonexistent/output/zone/file",
-		)
+		),
 	],
 )

@@ -537,16 +537,71 @@ impl Migrator {
         let cmd_file_path = format!("{output_dir_path}/commands.sh");
         let mut cmd_file = io.create(&cmd_file_path)?;
 
+        let c_user = match c_conf.daemon.identity.as_ref().map(|id| id.0.to_string()) {
+            Some(username) => username,
+            None => {
+                // Use the owner of the Cascade config file as the user to grant
+                // read access to newly installed Cascade policy files.
+                io.owner(c_conf_toml_path)?.ok_or(anyhow!(
+                    "Failed to determine ownership of file '{c_conf_toml_path}': Cause unknown",
+                ))?
+            }
+        };
+
+        writeln!(
+            cmd_file,
+            "# Copy the generated policies to the Cascade policy directory."
+        )?;
         for c_pol_name in c_pol_by_c_pol_name.keys() {
-            // TODO: Should the copied files should be chown'd to the cascade
-            // user?
             writeln!(
                 cmd_file,
                 "sudo cp {output_dir_path}/policies/{c_pol_name}.toml {c_pol_dir}/"
             )?;
         }
+
+        writeln!(cmd_file)?;
+        writeln!(
+            cmd_file,
+            "# Set the copied policy file ownership and permissions so that Cascade can read the files."
+        )?;
+        for c_pol_name in c_pol_by_c_pol_name.keys() {
+            writeln!(
+                cmd_file,
+                "sudo chown {c_user} {c_pol_dir}/{c_pol_name}.toml"
+            )?;
+            writeln!(cmd_file, "sudo chmod u+r {c_pol_dir}/{c_pol_name}.toml")?;
+        }
+
+        writeln!(cmd_file)?;
+        writeln!(cmd_file, "# Tell Cascade to reload its policy files.")?;
         writeln!(cmd_file, "cascade {c_cli_args} policy reload")?;
 
+        // Output `hsm add` commands for all HSMs.
+        // TODO: Should we restrict this to only those HSMs in use?
+        for o_repo in &o_conf.repository_list.repositories {
+            let hsm_name = sanitize_filename::sanitize(&o_repo.name);
+            // The HSM server is wherever kmip2pkcs11 is running.
+            // For OpenDNSSEC it was always effectively localhost, so we
+            // output a Cascade command that assumes that kmip2pkcs11 is
+            // likewise available on localhost aka 127.0.0.1.
+            writeln!(cmd_file)?;
+            writeln!(
+                cmd_file,
+                "# Tell Cascade that a kmip2pkcs11 instance named '{hsm_name}' is available at 127.0.0.1."
+            )?;
+            writeln!(
+                cmd_file,
+                "cascade {c_cli_args} hsm add --insecure --username {} --password {} {hsm_name} 127.0.0.1",
+                o_repo.token_label,
+                o_repo.pin.clone().unwrap()
+            )?;
+        }
+
+        writeln!(cmd_file)?;
+        writeln!(
+            cmd_file,
+            "# Tell Cascade to load and sign our zones using the appropriate policies."
+        )?;
         for zone in &o_zone_list.zones {
             let addns_path = o_addns_path_by_o_zone_name.get(&zone.name);
             let Some(c_pol_name) = c_pol_name_by_o_pol_name_plus_addns_path
@@ -740,9 +795,9 @@ impl Migrator {
             
               - Ensuring that OpenDNSSEC is not started again on next boot but instead Cascade is started.
               - Updating your backup and monitoring procedures.
-
+            
             {changes}
-
+            
             ## Migration steps
 
         "))?;
@@ -811,21 +866,31 @@ impl Migrator {
         }
 
         p.next_step()?;
-        p.println("Validate your kmip2pkcs11 configuration files.")?;
+        let have_multiple_k2p_configs = k2p_conf_paths.len() > 1;
+        let plural = if have_multiple_k2p_configs { "s" } else { "" };
+        p.println(format!(
+            "Validate your kmip2pkcs11 configuration file{plural}."
+        ))?;
+        let mut validate_cmds = String::new();
         for k2p_conf_path in k2p_conf_paths.iter() {
             // Sudo is not required here as the config file was written by the
             // current user.
-            p.code_block(
-                "sh",
-                format!("kmip2pkcs11 -c {k2p_conf_path} --check-config"),
+            use std::fmt::Write;
+            writeln!(
+                &mut validate_cmds,
+                "kmip2pkcs11 -c {k2p_conf_path} --check-config"
             )?;
         }
+        p.code_block("sh", validate_cmds)?;
 
         p.next_step()?;
-        p.println("Copy the kmi2pkcs11 configuration files to the proper location.")?;
-        if k2p_conf_paths.len() > 1 {
-            p.note("This should be a location that the kmip2pkcs11 instances will have read access to.")?;
-        } else if let Some(signer) = o_conf.signer.as_ref()
+        p.println(format!(
+            "Copy the kmip2pkcs11 configuration file{plural} to the proper location."
+        ))?;
+        p.note(format!("This should be a location that the kmip2pkcs11 instance{plural} will have read access to."))?;
+        p.println("")?;
+        if !have_multiple_k2p_configs
+            && let Some(signer) = o_conf.signer.as_ref()
             && let Some(Privileges {
                 user: Some(user), ..
             }) = &signer.privileges
@@ -837,6 +902,22 @@ impl Migrator {
         // TODO: Should the copied files be chown'd to the kmip2pkcs11 user?
         p.code_block("sh", format!("sudo cp {k2p_dir}/*.toml /etc/kmip2pkcs11/"))?;
 
+        if have_multiple_k2p_configs {
+            p.next_step()?;
+            p.println("Create additional kmip2pkcs11 systemd units.")?;
+            p.println(indoc::indoc!{"
+                If using systemd to control kmip2pkcs11 you will need to create separate kmip2pkcs11 units for each of the following kmip2pkcs11 configuration files.
+                Each systemd kmip2pkcs11 unit should invoke kmi2pkcs11 with `--config` specifying its own kmi2pkcs11 configuration file.
+            "})?;
+            for k2p_conf_path in k2p_conf_paths {
+                let file_name = Path::new(&k2p_conf_path).file_name().unwrap();
+                p.println(format!(
+                    "  - `/etc/kmip2pkcs11/{}`",
+                    file_name.to_str().unwrap()
+                ))?;
+            }
+        }
+
         p.next_step()?;
         p.println("Stop OpenDNSSEC.")?;
         p.warning("Executing this command will SHUTDOWN your OpenDNSSEC instance.")?;
@@ -846,24 +927,26 @@ impl Migrator {
         p.code_block("sh", "sudo ods-control stop")?;
 
         p.next_step()?;
-        p.println("Start kmip2pkcs11 once for each HSM to be connected to.")?;
-        if k2p_conf_paths.len() > 1 {
-            p.note("If using systemd to control kmip2pkcs11 you will need to create separate kmip2pkcs11 units for each kmi2pkcs11 configuration file.")?;
-        }
-        if k2p_conf_paths.len() == 1 {
+        if have_multiple_k2p_configs {
+            p.println("Start kmip2pkcs11 once for each HSM to be connected to.")?;
+            p.println("If using systemd to control kmip2pkcs11, start each of the kmip2pkcs11 units that you created above.")?;
+        } else {
+            p.println("Start kmip2pkcs11.")?;
+            p.println("If using systemd:")?;
             p.code_block("sh", "sudo systemctl start kmip2pkcs11")?;
-            p.println("OR")?;
         }
+        p.println("Otherwise:")?;
+        let mut start_cmds = String::new();
         for k2p_conf_path in k2p_conf_paths {
             let file_name = Path::new(&k2p_conf_path).file_name().unwrap();
-            p.code_block(
-                "sh",
-                format!(
-                    "sudo kmip2pkcs11 -c /etc/kmip2pkcs11/{}",
-                    file_name.to_str().unwrap()
-                ),
+            use std::fmt::Write;
+            writeln!(
+                &mut start_cmds,
+                "sudo kmip2pkcs11 -c /etc/kmip2pkcs11/{}",
+                file_name.to_str().unwrap()
             )?;
         }
+        p.code_block("sh", start_cmds)?;
 
         // TODO: Tell the user to invoke `kmip2pkcs11 --test-hsm` or
         // equivalent here when such functionality becomes available.
@@ -926,9 +1009,10 @@ impl MarkdownWriter {
             "
             E.g.
             ```{lang}
-            {cmd}
+            {}
             ```
-        "
+            ",
+            cmd.to_string().trim_end()
         )
     }
 
@@ -939,7 +1023,7 @@ impl MarkdownWriter {
             "
             > [!NOTE]
             > {msg}
-        "
+            "
         )
     }
 
@@ -950,7 +1034,7 @@ impl MarkdownWriter {
             "
             > [!WARNING]
             > {msg}
-        "
+            "
         )
     }
 
@@ -1474,6 +1558,12 @@ mod test {
     }
 
     #[tokio::test]
+    async fn single_policy_two_zones_two_hsms() -> anyhow::Result<()> {
+        run_test("1p-2z-2hsm").await?;
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn require_consistent_zones_xml() -> anyhow::Result<()> {
         let res = run_test("1p-1z-inconsistent-zones-xml").await;
         let v = to_inner_err::<_, MigrateError>(res);
@@ -1557,8 +1647,10 @@ mod test {
 
         // Compare the set of expected vs actual output paths.
         assert_eq!(
-            expected_paths, actual_paths,
-            "The expected output paths do not match the generated output paths"
+            expected_paths,
+            actual_paths,
+            "The files in '{}' do not match the generated output files",
+            expected_dir.display()
         );
 
         // Compare the contents of the expected vs actual output files.
@@ -1571,8 +1663,9 @@ mod test {
             assert_eq!(
                 expected,
                 actual,
-                "Content of generated file '{}' does not match the expected content",
-                path.display()
+                "Expected test output '{}' does not match the actual output '{}'",
+                expected_dir.join(path).display(),
+                path.display(),
             );
         }
 
