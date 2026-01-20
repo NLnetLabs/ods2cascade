@@ -194,6 +194,8 @@ pub mod conf {
         mysql(Mysql),
         #[serde(rename = "SQLite")]
         sqlite(Sqlite),
+        #[serde(rename = "Test")]
+        test(String),
     }
 
     #[derive(Debug, Default, Deserialize)]

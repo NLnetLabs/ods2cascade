@@ -1,0 +1,32 @@
+// Syntax: <table_name>: [<rust_row_type>, <rust_row_type>, ...]
+(
+	databaseVersion: DatabaseVersion(
+		id: 1,
+		rev: 1,
+		version: 1
+	),
+	zone: [
+		Zone(
+			id: 1,
+			name: "somezone",
+			policy_id: 1,
+			signconf_needs_writing: false,
+			signconf_path: "/some/nonexistent/signconf/file",
+			input_adapter_type: "File",
+			input_adapter_uri: "/some/nonexistent/zone/file",
+			output_adapter_type: "File",
+			output_adapter_uri: "/some/nonexistent/output/zone/file",
+		),
+		Zone(
+			id: 1,
+			name: "somezone2",
+			policy_id: 1,
+			signconf_needs_writing: false,
+			signconf_path: "/some/nonexistent/signconf/file",
+			input_adapter_type: "File",
+			input_adapter_uri: "/some/nonexistent/zone/file",
+			output_adapter_type: "File",
+			output_adapter_uri: "/some/nonexistent/output/zone/file",
+		)
+	],
+)

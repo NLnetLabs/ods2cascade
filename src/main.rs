@@ -2,7 +2,7 @@ mod io;
 mod schema;
 
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     fmt::Display,
     hash::{Hash, Hasher},
     io::Write,
@@ -84,6 +84,8 @@ enum MigrateError {
     KaspPolicySetIsEmpty,
     OnlyUnusedKaspPoliciesFound,
     RepositoryWithoutPinNotYetSupported(String),
+    InconsistentState(String),
+    OutdatedState(String),
 }
 
 impl std::fmt::Display for MigrateError {
@@ -98,6 +100,8 @@ impl std::fmt::Display for MigrateError {
             MigrateError::RepositoryWithoutPinNotYetSupported(o_repo_name) => {
                 write!(f, "HSM repository '{o_repo_name}' lacks a <PIN/>, which is not yet supported by Cascade.")
             }
+            MigrateError::InconsistentState(err) => write!(f, "Inconsistent state: {err}"),
+            MigrateError::OutdatedState(err) => write!(f, "Outdated state: {err}"),
         }
     }
 }
@@ -190,9 +194,53 @@ impl Migrator {
         let o_zone_list: ZoneList = process_xml(&xml)?;
 
         // Verify that we can connect to the Enforcer database.
-        let mut db_conn = DbConn::new(&o_conf.enforcer.datastore.datastore).await?;
+        let mut db_conn = DbConn::new(&o_conf.enforcer.datastore.datastore, io).await?;
         let db_version = db_conn.db_version().await?;
         println!("Found Enforcer database version: {}", db_version.version);
+
+        // Verify that the set of database zones matches the set of zones.xml zones.
+        let zones_file_zone_names = o_zone_list
+            .zones
+            .iter()
+            .map(|z| z.name.clone())
+            .collect::<BTreeSet<_>>();
+        let db_zones = db_conn.zones().await?;
+        let db_zone_names = db_zones
+            .iter()
+            .map(|z| z.name.clone())
+            .collect::<BTreeSet<_>>();
+        let diff: Vec<_> = db_zone_names.difference(&zones_file_zone_names).collect();
+        if !diff.is_empty() {
+            let mut err = "The set of zones defined in the Enforcer zones.xml file differs to that of the Enforcer database:\n".to_string();
+            err.push_str("  Database :");
+            for zone_name in db_zone_names {
+                err.push(' ');
+                err.push_str(&zone_name);
+            }
+            err.push('\n');
+            err.push_str("  zones.xml:");
+            for zone_name in zones_file_zone_names {
+                err.push(' ');
+                err.push_str(&zone_name);
+            }
+            err.push('\n');
+            return Err(MigrateError::InconsistentState(err).into());
+        }
+
+        // Verify that all of the signconf XML files have been written to disk.
+        let db_zones_pending_signconf_write = db_zones
+            .iter()
+            .filter(|z| z.signconf_needs_writing)
+            .map(|z| z.name.clone())
+            .collect::<Vec<_>>();
+        if !db_zones_pending_signconf_write.is_empty() {
+            let mut err = "One or more zones have the signconfNeedsWriting flag set in the Enforcer database:".to_string();
+            for zone_name in db_zones_pending_signconf_write {
+                err.push(' ');
+                err.push_str(&zone_name);
+            }
+            return Err(MigrateError::OutdatedState(err).into());
+        }
 
         // (ODS policy name, ODS addns path) -> Cascade policy name
         let mut c_pol_name_by_o_pol_name_plus_addns_path =
@@ -1150,12 +1198,20 @@ enum DbConn {
     #[cfg(not(test))]
     SQLite(sqlx::SqliteConnection),
     #[cfg(test)]
-    Test,
+    Test(TestDbSnapshot),
+}
+
+#[cfg(test)]
+#[allow(non_snake_case)]
+#[derive(Deserialize)]
+struct TestDbSnapshot {
+    pub databaseVersion: schema::db::DatabaseVersion,
+    pub zone: Vec<schema::db::zone::Zone>,
 }
 
 impl DbConn {
     #[cfg(not(test))]
-    async fn new(datastore: &DatastoreEnum) -> Result<DbConn, sqlx::Error> {
+    async fn new<IO: FsOps>(datastore: &DatastoreEnum, _io: &IO) -> Result<DbConn, sqlx::Error> {
         match datastore {
             DatastoreEnum::mysql(Mysql {
                 host,
@@ -1176,12 +1232,29 @@ impl DbConn {
                 println!("Connecting to SQLite Enforcer database at {url}...");
                 SqliteConnection::connect(&url).await.map(DbConn::SQLite)
             }
+            DatastoreEnum::test(_) => panic!("The test datastore is only for use by tests"),
         }
     }
 
     #[cfg(test)]
-    async fn new(_datastore: &DatastoreEnum) -> Result<DbConn, sqlx::Error> {
-        Ok(Self::Test)
+    async fn new<IO: FsOps>(datastore: &DatastoreEnum, io: &IO) -> Result<DbConn, sqlx::Error> {
+        match datastore {
+            DatastoreEnum::mysql(_) => panic!(
+                "Tests don't currently support the <MySQL> datastore type, use <Test>db.ron</Test> instead"
+            ),
+            DatastoreEnum::sqlite(_) => panic!(
+                "Tests don't currently support the <SQLite> datastore type, use <Test>db.ron</Test> instead"
+            ),
+            DatastoreEnum::test(ron_data_path) => {
+                let ron_data = io.read_to_string(ron_data_path)?;
+                let snapshot: TestDbSnapshot = ron::from_str(&ron_data).map_err(|err| {
+                    sqlx::Error::Io(std::io::Error::other(format!(
+                        "Failed to parse test db snapshot: {err}"
+                    )))
+                })?;
+                Ok(Self::Test(snapshot))
+            }
+        }
     }
 
     async fn db_version(&mut self) -> Result<schema::db::DatabaseVersion, sqlx::Error> {
@@ -1196,11 +1269,20 @@ impl DbConn {
             #[cfg(not(test))]
             DbConn::SQLite(c) => sqlx::query_as(Q).fetch_one(c).await,
             #[cfg(test)]
-            DbConn::Test => Ok(schema::db::DatabaseVersion {
-                id: 0,
-                rev: 0,
-                version: 1,
-            }),
+            DbConn::Test(db) => Ok(db.databaseVersion.clone()),
+        }
+    }
+
+    async fn zones(&mut self) -> Result<Vec<schema::db::zone::Zone>, sqlx::Error> {
+        #[cfg(not(test))]
+        const Q: &str = "SELECT * FROM zone";
+        match self {
+            #[cfg(not(test))]
+            DbConn::MySQL(c) => sqlx::query_as(Q).fetch_all(c).await,
+            #[cfg(not(test))]
+            DbConn::SQLite(c) => sqlx::query_as(Q).fetch_all(c).await,
+            #[cfg(test)]
+            DbConn::Test(db) => Ok(db.zone.clone()),
         }
     }
 }
@@ -1279,6 +1361,22 @@ mod test {
     #[tokio::test]
     async fn single_policy_one_zone() -> anyhow::Result<()> {
         run_test("1p-1z").await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn require_consistent_zones_xml() -> anyhow::Result<()> {
+        let res = run_test("1p-1z-inconsistent-zones-xml").await;
+        let v = to_inner_err::<_, MigrateError>(res);
+        assert!(matches!(v, MigrateError::InconsistentState(_)));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn require_signconf_written_true() -> anyhow::Result<()> {
+        let res = run_test("1p-1z-signconf-write-pending").await;
+        let v = to_inner_err::<_, MigrateError>(res);
+        assert!(matches!(v, MigrateError::OutdatedState(_)));
         Ok(())
     }
 
@@ -1394,8 +1492,14 @@ mod test {
     {
         assert!(res.is_err());
         let err = res.err().unwrap();
-        let inner_err = err.downcast::<E>();
-        assert!(inner_err.is_ok());
-        inner_err.unwrap()
+        match err.downcast::<E>() {
+            Err(err) => {
+                panic!(
+                    "Expected inner error of type {} but got {err:#?}",
+                    std::any::type_name::<E>()
+                );
+            }
+            Ok(v) => v,
+        }
     }
 }
