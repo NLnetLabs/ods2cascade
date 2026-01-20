@@ -1,16 +1,56 @@
 Building From Source
 ====================
 
-Building Ods2Cascade requires Rust and an operating system and CPU
-architecture supported by Rust.
+There are three things you need to build Ods2Cascade: a C toolchain, OpenSSL,
+and Rust. You can run Cascade on any operating system and CPU architecture
+where you can fulfil these requirements.
+
+Dependencies
+------------
+
+To get started, you need a C toolchain and OpenSSL because the cryptographic
+primitives used by Ods2Cascade require it. You also need Rust, because that's
+the programming language that Ods2Cascade has been written in. Additionally,
+you need a few tools used by Ods2Cascade. However, they are installed together
+with Ods2Cascade in the steps below.
+
+C Toolchain
+"""""""""""
+
+Some of the libraries Ods2Cascade depends on require a C toolchain to be
+present. Your system probably has some easy way to install the minimum set
+of packages to build from C sources. For example, this command will install
+everything you need on Debian/Ubuntu:
+
+.. code-block:: bash
+
+  apt install build-essential
+
+If you are unsure, try to run :command:`cc` on a command line. If there is a
+complaint about missing input files, you are probably good to go.
+
+OpenSSL
+"""""""
+
+Your system will likely have a package manager that will allow you to
+install OpenSSL in a few easy steps. On Debian and Ubuntu this is usually
+:command:`libssl-dev`. You will also need :command:`pkg-config` for discovery
+of system libraries. On Red Hat Enterprise (RHEL) you will most likely need to
+install :command:`openssl-devel`.
+
+On Debian-like Linux distributions it should be as simple as running:
+
+.. code-block:: bash
+
+    apt install libssl-dev pkg-config
 
 Rust
 """"
 
 The Rust compiler runs on, and compiles to, a great number of platforms,
 though not all of them are equally supported. The official `Rust Platform
-Support <https://doc.rust-lang.org/nightly/rustc/platform-support.html>`_
-page provides an overview of the various support levels.
+Support <https://doc.rust-lang.org/nightly/rustc/platform-support.html>`_ page
+provides an overview of the various support levels.
 
 While some system distributions include Rust as system packages, Ods2Cascade
 relies on a relatively new version of Rust, currently |rustversion| or newer.
