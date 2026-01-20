@@ -2,7 +2,7 @@ mod io;
 mod schema;
 
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     fmt::Display,
     hash::{Hash, Hasher},
     io::Write,
@@ -29,8 +29,11 @@ use sqlx::{Connection, MySqlConnection, SqliteConnection};
 
 #[cfg(not(test))]
 use crate::schema::xml::conf::{Host, Mysql};
-use crate::schema::xml::kasp::SerialEnum;
-use crate::schema::xml::{conf::DatastoreEnum, kasp::DenialEnum};
+use crate::schema::xml::{
+    common::{DenialEnum, SerialEnum},
+    conf::DatastoreEnum,
+    signconf::SignerConfiguration,
+};
 use crate::{
     io::{Fs, FsOps},
     schema::xml::conf::Privileges,
@@ -38,10 +41,19 @@ use crate::{
 
 #[tokio::main]
 async fn main() {
+    // Poor mans CLI argument parsing. We don't need Clap (yet).
+    if let Some(true) = std::env::args()
+        .nth(1)
+        .map(|arg| arg == "--version" || arg == "-V")
+    {
+        println!("{} {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
+        std::process::exit(0);
+    }
+
     let mut args = std::env::args();
     let prog_name = args.next().unwrap();
 
-    if args.len() != 3 {
+    if args.len() != 3 || args.any(|arg| arg == "--help" || arg == "-h") {
         eprintln!(
             "Usage: {prog_name} <path/to/cascade.toml> <path/to/opendnssec/conf.xml> <path/to/write/files/to>"
         );
@@ -52,6 +64,7 @@ async fn main() {
         std::process::exit(1);
     }
 
+    let mut args = std::env::args();
     let c_conf_toml_path = args.next().unwrap();
     let o_conf_xml_path = args.next().unwrap();
     let output_dir_path = args.next().unwrap();
@@ -74,6 +87,8 @@ enum MigrateError {
     KaspPolicySetIsEmpty,
     OnlyUnusedKaspPoliciesFound,
     RepositoryWithoutPinNotYetSupported(String),
+    InconsistentState(String),
+    OutdatedState(String),
 }
 
 impl std::fmt::Display for MigrateError {
@@ -88,6 +103,8 @@ impl std::fmt::Display for MigrateError {
             MigrateError::RepositoryWithoutPinNotYetSupported(o_repo_name) => {
                 write!(f, "HSM repository '{o_repo_name}' lacks a <PIN/>, which is not yet supported by Cascade.")
             }
+            MigrateError::InconsistentState(err) => write!(f, "Inconsistent state: {err}"),
+            MigrateError::OutdatedState(err) => write!(f, "Outdated state: {err}"),
         }
     }
 }
@@ -180,9 +197,53 @@ impl Migrator {
         let o_zone_list: ZoneList = process_xml(&xml)?;
 
         // Verify that we can connect to the Enforcer database.
-        let mut db_conn = DbConn::new(&o_conf.enforcer.datastore.datastore).await?;
+        let mut db_conn = DbConn::new(&o_conf.enforcer.datastore.datastore, io).await?;
         let db_version = db_conn.db_version().await?;
         println!("Found Enforcer database version: {}", db_version.version);
+
+        // Verify that the set of database zones matches the set of zones.xml zones.
+        let zones_file_zone_names = o_zone_list
+            .zones
+            .iter()
+            .map(|z| z.name.clone())
+            .collect::<BTreeSet<_>>();
+        let db_zones = db_conn.zones().await?;
+        let db_zone_names = db_zones
+            .iter()
+            .map(|z| z.name.clone())
+            .collect::<BTreeSet<_>>();
+        let diff: Vec<_> = db_zone_names.difference(&zones_file_zone_names).collect();
+        if !diff.is_empty() {
+            let mut err = "The set of zones defined in the Enforcer zones.xml file differs to that of the Enforcer database:\n".to_string();
+            err.push_str("  Database :");
+            for zone_name in db_zone_names {
+                err.push(' ');
+                err.push_str(&zone_name);
+            }
+            err.push('\n');
+            err.push_str("  zones.xml:");
+            for zone_name in zones_file_zone_names {
+                err.push(' ');
+                err.push_str(&zone_name);
+            }
+            err.push('\n');
+            return Err(MigrateError::InconsistentState(err).into());
+        }
+
+        // Verify that all of the signconf XML files have been written to disk.
+        let db_zones_pending_signconf_write = db_zones
+            .iter()
+            .filter(|z| z.signconf_needs_writing)
+            .map(|z| z.name.clone())
+            .collect::<Vec<_>>();
+        if !db_zones_pending_signconf_write.is_empty() {
+            let mut err = "One or more zones have the signconfNeedsWriting flag set in the Enforcer database:".to_string();
+            for zone_name in db_zones_pending_signconf_write {
+                err.push(' ');
+                err.push_str(&zone_name);
+            }
+            return Err(MigrateError::OutdatedState(err).into());
+        }
 
         // (ODS policy name, ODS addns path) -> Cascade policy name
         let mut c_pol_name_by_o_pol_name_plus_addns_path =
@@ -199,6 +260,9 @@ impl Migrator {
 
         // ODS zone name -> ODS signed zone output path
         let _o_signed_zone_output_paths_by_zone_name = BTreeMap::<String, String>::new();
+
+        // ODS zone name -> Details of keys to import into Cascade.
+        let mut c_keys_to_import_by_zone_name = BTreeMap::<String, Vec<KeyToImport>>::new();
 
         // Does ODS have at least one zone which it writes to disk rather than
         // serves via XFR?
@@ -429,21 +493,121 @@ impl Migrator {
             c_pol_by_c_pol_name.insert(c_pol_name.to_string(), c_pol);
         }
 
+        // Collect the details of keys to import per zone.
+        for zone in &o_zone_list.zones {
+            let db_zone = db_zones
+                .iter()
+                .find(|z| z.name == zone.name)
+                .expect("The zone must exist in the DB as we checked this already");
+
+            let xml = io.read_to_string(&db_zone.signconf_path)?;
+            let sign_conf: SignerConfiguration = process_xml(&xml)?;
+            let safe_zone_name = sanitize_filename::sanitize(&zone.name);
+            io.dbg_to_file(&sign_conf, &format!("sign_conf_{safe_zone_name}"), &dbg_dir)?;
+
+            // Extract the KSK and ZSK keys that have <Publish/> set.
+            // TODO: Add support for keys with no locator but with a
+            // resource_record field set instead?
+            let mut keys_to_import = vec![];
+            for key in &sign_conf.zone.keys.keys {
+                if key.publish.is_some()
+                    && let Some(locator) = &key.locator
+                {
+                    let flags = u16::from_str(&key.flags.value).unwrap();
+                    let algorithm = u8::from_str(&key.algorithm.value).unwrap();
+                    let key_type = match (key.ksk, key.zsk) {
+                        (None, None) => None,
+                        (None, Some(_)) => Some(KeyType::Zsk),
+                        (Some(_), None) => Some(KeyType::Ksk),
+                        (Some(_), Some(_)) => Some(KeyType::Csk),
+                    };
+
+                    if let Some(key_type) = key_type {
+                        keys_to_import.push(KeyToImport {
+                            locator: locator.clone(),
+                            flags,
+                            algorithm,
+                            key_type,
+                        });
+                    }
+                }
+            }
+
+            if !keys_to_import.is_empty() {
+                c_keys_to_import_by_zone_name.insert(zone.name.clone(), keys_to_import);
+            }
+        }
+
         // Output `cascade` commands for the user to run.
         println!("Generating '{output_dir_path}/commands.sh'...");
         let cmd_file_path = format!("{output_dir_path}/commands.sh");
         let mut cmd_file = io.create(&cmd_file_path)?;
 
+        let c_user = match c_conf.daemon.identity.as_ref().map(|id| id.0.to_string()) {
+            Some(username) => username,
+            None => {
+                // Use the owner of the Cascade config file as the user to grant
+                // read access to newly installed Cascade policy files.
+                io.owner(c_conf_toml_path)?.ok_or(anyhow!(
+                    "Failed to determine ownership of file '{c_conf_toml_path}': Cause unknown",
+                ))?
+            }
+        };
+
+        writeln!(
+            cmd_file,
+            "# Copy the generated policies to the Cascade policy directory."
+        )?;
         for c_pol_name in c_pol_by_c_pol_name.keys() {
-            // TODO: Should the copied files should be chown'd to the cascade
-            // user?
             writeln!(
                 cmd_file,
                 "sudo cp {output_dir_path}/policies/{c_pol_name}.toml {c_pol_dir}/"
             )?;
         }
+
+        writeln!(cmd_file)?;
+        writeln!(
+            cmd_file,
+            "# Set the copied policy file ownership and permissions so that Cascade can read the files."
+        )?;
+        for c_pol_name in c_pol_by_c_pol_name.keys() {
+            writeln!(
+                cmd_file,
+                "sudo chown {c_user} {c_pol_dir}/{c_pol_name}.toml"
+            )?;
+            writeln!(cmd_file, "sudo chmod u+r {c_pol_dir}/{c_pol_name}.toml")?;
+        }
+
+        writeln!(cmd_file)?;
+        writeln!(cmd_file, "# Tell Cascade to reload its policy files.")?;
         writeln!(cmd_file, "cascade {c_cli_args} policy reload")?;
 
+        // Output `hsm add` commands for all HSMs.
+        // TODO: Should we restrict this to only those HSMs in use?
+        for o_repo in &o_conf.repository_list.repositories {
+            let hsm_name = sanitize_filename::sanitize(&o_repo.name);
+            // The HSM server is wherever kmip2pkcs11 is running.
+            // For OpenDNSSEC it was always effectively localhost, so we
+            // output a Cascade command that assumes that kmip2pkcs11 is
+            // likewise available on localhost aka 127.0.0.1.
+            writeln!(cmd_file)?;
+            writeln!(
+                cmd_file,
+                "# Tell Cascade that a kmip2pkcs11 instance named '{hsm_name}' is available at 127.0.0.1."
+            )?;
+            writeln!(
+                cmd_file,
+                "cascade {c_cli_args} hsm add --insecure --username {} --password {} {hsm_name} 127.0.0.1",
+                o_repo.token_label,
+                o_repo.pin.clone().unwrap()
+            )?;
+        }
+
+        writeln!(cmd_file)?;
+        writeln!(
+            cmd_file,
+            "# Tell Cascade to load and sign our zones using the appropriate policies."
+        )?;
         for zone in &o_zone_list.zones {
             let addns_path = o_addns_path_by_o_zone_name.get(&zone.name);
             let Some(c_pol_name) = c_pol_name_by_o_pol_name_plus_addns_path
@@ -464,16 +628,61 @@ impl Migrator {
                 source = format!("{ip_addr}:{port}");
             }
 
+            // Construct the `cascade zone add` command to emit.
+            let mut cmd =
+                format!("cascade {c_cli_args} zone add --policy {c_pol_name} --source {source} ");
+
+            if let Some(keys) = c_keys_to_import_by_zone_name.get(&zone.name) {
+                for key in keys {
+                    match key.key_type {
+                        KeyType::Zsk => cmd += "--import-zsk-kmip ",
+                        KeyType::Ksk => cmd += "--import-ksk-kmip ",
+                        KeyType::Csk => cmd += "--import-csk-kmip ",
+                    }
+
+                    // The signconf has the CKA_ID locator for the key but
+                    // doesn't say which ODS HSM repisitory contains the key,
+                    // as ODS will just try all known repositories to find
+                    // the key. Cascade can't do that so we need to know which
+                    // repository it should be in. We get that from the zone
+                    // policy.
+                    let cascaded::policy::file::Spec::V1(c_pol) =
+                        c_pol_by_c_pol_name.get(c_pol_name).unwrap();
+                    let hsm_server_id =
+                        c_pol.key_manager.generation.hsm_server_id.as_ref().unwrap();
+
+                    // OpenDNSSEC generates public/private keys which both
+                    // have the same CKA_ID. KMIP however requires these
+                    // two identifiers to be unique. kmip2pkcs11 handles
+                    // this need for uniqueness by suffixing the keys with
+                    // _pub and _priv respectively, but usually this mapping
+                    // process is invisible to the user of kmip2pkcs11 as
+                    // they only see the generated KMIP IDs, not the internal
+                    // CKA_IDs. As in this case the keys were not created
+                    // by kmip2pkcs11 we have to "uniqify" them ourselves
+                    // before passing them to Cascade which in turn will pass
+                    // them to kmip2pkcs11. It may be possible in future to
+                    // provide CKA_IDs, but not at the time of writing. See
+                    // https://github.com/NLnetLabs/kmip2pkcs11/pull/24 for
+                    // more information.
+                    let public_id = format!("{}_pub", key.locator);
+                    let private_id = format!("{}_priv", key.locator);
+
+                    cmd += &format!(
+                        "{hsm_server_id} {public_id} {private_id} {} {} ",
+                        key.algorithm, key.flags
+                    );
+                }
+            }
+
+            cmd += &zone.name;
+
             // TODO: Adding the zone can fail if the zone file is readable by
             // the cascaded daemon but not by the cascade CLI, even though the
             // CLI shouldn't need read access to it as it only sends the path
             // to the daemon. It fails when attempting to canonicalize the
             // path to the zone file.
-            writeln!(
-                cmd_file,
-                "cascade {c_cli_args} zone add --policy {c_pol_name} --source {source} {}",
-                zone.name
-            )?;
+            writeln!(cmd_file, "{cmd}")?;
 
             cmd_file.flush()?;
         }
@@ -601,9 +810,9 @@ impl Migrator {
             
               - Ensuring that OpenDNSSEC is not started again on next boot but instead Cascade is started.
               - Updating your backup and monitoring procedures.
-
+            
             {changes}
-
+            
             ## Migration steps
 
         "))?;
@@ -672,21 +881,31 @@ impl Migrator {
         }
 
         p.next_step()?;
-        p.println("Validate your kmip2pkcs11 configuration files.")?;
+        let have_multiple_k2p_configs = k2p_conf_paths.len() > 1;
+        let plural = if have_multiple_k2p_configs { "s" } else { "" };
+        p.println(format!(
+            "Validate your kmip2pkcs11 configuration file{plural}."
+        ))?;
+        let mut validate_cmds = String::new();
         for k2p_conf_path in k2p_conf_paths.iter() {
             // Sudo is not required here as the config file was written by the
             // current user.
-            p.code_block(
-                "sh",
-                format!("kmip2pkcs11 -c {k2p_conf_path} --check-config"),
+            use std::fmt::Write;
+            writeln!(
+                &mut validate_cmds,
+                "kmip2pkcs11 -c {k2p_conf_path} --check-config"
             )?;
         }
+        p.code_block("sh", validate_cmds)?;
 
         p.next_step()?;
-        p.println("Copy the kmi2pkcs11 configuration files to the proper location.")?;
-        if k2p_conf_paths.len() > 1 {
-            p.note("This should be a location that the kmip2pkcs11 instances will have read access to.")?;
-        } else if let Some(signer) = o_conf.signer.as_ref()
+        p.println(format!(
+            "Copy the kmip2pkcs11 configuration file{plural} to the proper location."
+        ))?;
+        p.note(format!("This should be a location that the kmip2pkcs11 instance{plural} will have read access to."))?;
+        p.println("")?;
+        if !have_multiple_k2p_configs
+            && let Some(signer) = o_conf.signer.as_ref()
             && let Some(Privileges {
                 user: Some(user), ..
             }) = &signer.privileges
@@ -698,6 +917,22 @@ impl Migrator {
         // TODO: Should the copied files be chown'd to the kmip2pkcs11 user?
         p.code_block("sh", format!("sudo cp {k2p_dir}/*.toml /etc/kmip2pkcs11/"))?;
 
+        if have_multiple_k2p_configs {
+            p.next_step()?;
+            p.println("Create additional kmip2pkcs11 systemd units.")?;
+            p.println(indoc::indoc!{"
+                If using systemd to control kmip2pkcs11 you will need to create separate kmip2pkcs11 units for each of the following kmip2pkcs11 configuration files.
+                Each systemd kmip2pkcs11 unit should invoke kmi2pkcs11 with `--config` specifying its own kmi2pkcs11 configuration file.
+            "})?;
+            for k2p_conf_path in k2p_conf_paths {
+                let file_name = Path::new(&k2p_conf_path).file_name().unwrap();
+                p.println(format!(
+                    "  - `/etc/kmip2pkcs11/{}`",
+                    file_name.to_str().unwrap()
+                ))?;
+            }
+        }
+
         p.next_step()?;
         p.println("Stop OpenDNSSEC.")?;
         p.warning("Executing this command will SHUTDOWN your OpenDNSSEC instance.")?;
@@ -707,24 +942,26 @@ impl Migrator {
         p.code_block("sh", "sudo ods-control stop")?;
 
         p.next_step()?;
-        p.println("Start kmip2pkcs11 once for each HSM to be connected to.")?;
-        if k2p_conf_paths.len() > 1 {
-            p.note("If using systemd to control kmip2pkcs11 you will need to create separate kmip2pkcs11 units for each kmi2pkcs11 configuration file.")?;
-        }
-        if k2p_conf_paths.len() == 1 {
+        if have_multiple_k2p_configs {
+            p.println("Start kmip2pkcs11 once for each HSM to be connected to.")?;
+            p.println("If using systemd to control kmip2pkcs11, start each of the kmip2pkcs11 units that you created above.")?;
+        } else {
+            p.println("Start kmip2pkcs11.")?;
+            p.println("If using systemd:")?;
             p.code_block("sh", "sudo systemctl start kmip2pkcs11")?;
-            p.println("OR")?;
         }
+        p.println("Otherwise:")?;
+        let mut start_cmds = String::new();
         for k2p_conf_path in k2p_conf_paths {
             let file_name = Path::new(&k2p_conf_path).file_name().unwrap();
-            p.code_block(
-                "sh",
-                format!(
-                    "sudo kmip2pkcs11 -c /etc/kmip2pkcs11/{}",
-                    file_name.to_str().unwrap()
-                ),
+            use std::fmt::Write;
+            writeln!(
+                &mut start_cmds,
+                "sudo kmip2pkcs11 -c /etc/kmip2pkcs11/{}",
+                file_name.to_str().unwrap()
             )?;
         }
+        p.code_block("sh", start_cmds)?;
 
         // TODO: Tell the user to invoke `kmip2pkcs11 --test-hsm` or
         // equivalent here when such functionality becomes available.
@@ -787,9 +1024,10 @@ impl MarkdownWriter {
             "
             E.g.
             ```{lang}
-            {cmd}
+            {}
             ```
-        "
+            ",
+            cmd.to_string().trim_end()
         )
     }
 
@@ -800,7 +1038,7 @@ impl MarkdownWriter {
             "
             > [!NOTE]
             > {msg}
-        "
+            "
         )
     }
 
@@ -811,7 +1049,7 @@ impl MarkdownWriter {
             "
             > [!WARNING]
             > {msg}
-        "
+            "
         )
     }
 
@@ -1155,12 +1393,20 @@ enum DbConn {
     #[cfg(not(test))]
     SQLite(sqlx::SqliteConnection),
     #[cfg(test)]
-    Test,
+    Test(TestDbSnapshot),
+}
+
+#[cfg(test)]
+#[allow(non_snake_case)]
+#[derive(Deserialize)]
+struct TestDbSnapshot {
+    pub databaseVersion: schema::db::DatabaseVersion,
+    pub zone: Vec<schema::db::zone::Zone>,
 }
 
 impl DbConn {
     #[cfg(not(test))]
-    async fn new(datastore: &DatastoreEnum) -> Result<DbConn, sqlx::Error> {
+    async fn new<IO: FsOps>(datastore: &DatastoreEnum, _io: &IO) -> Result<DbConn, sqlx::Error> {
         match datastore {
             DatastoreEnum::mysql(Mysql {
                 host,
@@ -1181,12 +1427,29 @@ impl DbConn {
                 println!("Connecting to SQLite Enforcer database at {url}...");
                 SqliteConnection::connect(&url).await.map(DbConn::SQLite)
             }
+            DatastoreEnum::test(_) => panic!("The test datastore is only for use by tests"),
         }
     }
 
     #[cfg(test)]
-    async fn new(_datastore: &DatastoreEnum) -> Result<DbConn, sqlx::Error> {
-        Ok(Self::Test)
+    async fn new<IO: FsOps>(datastore: &DatastoreEnum, io: &IO) -> Result<DbConn, sqlx::Error> {
+        match datastore {
+            DatastoreEnum::mysql(_) => panic!(
+                "Tests don't currently support the <MySQL> datastore type, use <Test>db.ron</Test> instead"
+            ),
+            DatastoreEnum::sqlite(_) => panic!(
+                "Tests don't currently support the <SQLite> datastore type, use <Test>db.ron</Test> instead"
+            ),
+            DatastoreEnum::test(ron_data_path) => {
+                let ron_data = io.read_to_string(ron_data_path)?;
+                let snapshot: TestDbSnapshot = ron::from_str(&ron_data).map_err(|err| {
+                    sqlx::Error::Io(std::io::Error::other(format!(
+                        "Failed to parse test db snapshot: {err}"
+                    )))
+                })?;
+                Ok(Self::Test(snapshot))
+            }
+        }
     }
 
     async fn db_version(&mut self) -> Result<schema::db::DatabaseVersion, sqlx::Error> {
@@ -1201,13 +1464,35 @@ impl DbConn {
             #[cfg(not(test))]
             DbConn::SQLite(c) => sqlx::query_as(Q).fetch_one(c).await,
             #[cfg(test)]
-            DbConn::Test => Ok(schema::db::DatabaseVersion {
-                id: 0,
-                rev: 0,
-                version: 1,
-            }),
+            DbConn::Test(db) => Ok(db.databaseVersion.clone()),
         }
     }
+
+    async fn zones(&mut self) -> Result<Vec<schema::db::zone::Zone>, sqlx::Error> {
+        #[cfg(not(test))]
+        const Q: &str = "SELECT * FROM zone";
+        match self {
+            #[cfg(not(test))]
+            DbConn::MySQL(c) => sqlx::query_as(Q).fetch_all(c).await,
+            #[cfg(not(test))]
+            DbConn::SQLite(c) => sqlx::query_as(Q).fetch_all(c).await,
+            #[cfg(test)]
+            DbConn::Test(db) => Ok(db.zone.clone()),
+        }
+    }
+}
+
+struct KeyToImport {
+    pub locator: String,
+    pub flags: u16,
+    pub algorithm: u8,
+    pub key_type: KeyType,
+}
+
+enum KeyType {
+    Zsk,
+    Ksk,
+    Csk,
 }
 
 // TESTING
@@ -1288,6 +1573,28 @@ mod test {
     }
 
     #[tokio::test]
+    async fn single_policy_two_zones_two_hsms() -> anyhow::Result<()> {
+        run_test("1p-2z-2hsm").await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn require_consistent_zones_xml() -> anyhow::Result<()> {
+        let res = run_test("1p-1z-inconsistent-zones-xml").await;
+        let v = to_inner_err::<_, MigrateError>(res);
+        assert!(matches!(v, MigrateError::InconsistentState(_)));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn require_signconf_written_true() -> anyhow::Result<()> {
+        let res = run_test("1p-1z-signconf-write-pending").await;
+        let v = to_inner_err::<_, MigrateError>(res);
+        assert!(matches!(v, MigrateError::OutdatedState(_)));
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn force_nsec3_to_bcp_settings() -> anyhow::Result<()> {
         run_test("1p-1z-non-bcp-nsec3").await?;
         Ok(())
@@ -1361,8 +1668,10 @@ mod test {
 
         // Compare the set of expected vs actual output paths.
         assert_eq!(
-            expected_paths, actual_paths,
-            "The expected output paths do not match the generated output paths"
+            expected_paths,
+            actual_paths,
+            "The files in '{}' do not match the generated output files",
+            expected_dir.display()
         );
 
         // Compare the contents of the expected vs actual output files.
@@ -1375,8 +1684,9 @@ mod test {
             assert_eq!(
                 expected,
                 actual,
-                "Content of generated file '{}' does not match the expected content",
-                path.display()
+                "Expected test output '{}' does not match the actual output '{}'",
+                expected_dir.join(path).display(),
+                path.display(),
             );
         }
 
@@ -1405,8 +1715,14 @@ mod test {
     {
         assert!(res.is_err());
         let err = res.err().unwrap();
-        let inner_err = err.downcast::<E>();
-        assert!(inner_err.is_ok());
-        inner_err.unwrap()
+        match err.downcast::<E>() {
+            Err(err) => {
+                panic!(
+                    "Expected inner error of type {} but got {err:#?}",
+                    std::any::type_name::<E>()
+                );
+            }
+            Ok(v) => v,
+        }
     }
 }

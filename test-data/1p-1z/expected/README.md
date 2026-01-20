@@ -49,14 +49,17 @@ servers = ["0.0.0.0:53"]
 Or use some other tool to retrieve signed zones via XFR and write them to disk.
 This is needed because your OpenDNSSEC instance writes signed zones to disk which Cascade is not yet able to do.
 
-# 3. Validate your kmip2pkcs11 configuration files.
+# 3. Validate your kmip2pkcs11 configuration file.
 
 E.g.
 ```sh
 kmip2pkcs11 -c out/kmip2pkcs11/somehsm.toml --check-config
 ```
 
-# 4. Copy the kmi2pkcs11 configuration files to the proper location.
+# 4. Copy the kmip2pkcs11 configuration file to the proper location.
+
+> [!NOTE]
+> This should be a location that the kmip2pkcs11 instance will have read access to.
 
 E.g.
 ```sh
@@ -73,13 +76,14 @@ E.g.
 sudo ods-control stop
 ```
 
-# 6. Start kmip2pkcs11 once for each HSM to be connected to.
+# 6. Start kmip2pkcs11.
 
+If using systemd:
 E.g.
 ```sh
 sudo systemctl start kmip2pkcs11
 ```
-OR
+Otherwise:
 E.g.
 ```sh
 sudo kmip2pkcs11 -c /etc/kmip2pkcs11/somehsm.toml
