@@ -41,10 +41,19 @@ use crate::{
 
 #[tokio::main]
 async fn main() {
+    // Poor mans CLI argument parsing. We don't need Clap (yet).
+    if let Some(true) = std::env::args()
+        .nth(1)
+        .map(|arg| arg == "--version" || arg == "-V")
+    {
+        println!("{} {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
+        std::process::exit(0);
+    }
+
     let mut args = std::env::args();
     let prog_name = args.next().unwrap();
 
-    if args.len() != 3 {
+    if args.len() != 3 || args.any(|arg| arg == "--help" || arg == "-h") {
         eprintln!(
             "Usage: {prog_name} <path/to/cascade.toml> <path/to/opendnssec/conf.xml> <path/to/write/files/to>"
         );
@@ -55,6 +64,7 @@ async fn main() {
         std::process::exit(1);
     }
 
+    let mut args = std::env::args();
     let c_conf_toml_path = args.next().unwrap();
     let o_conf_xml_path = args.next().unwrap();
     let output_dir_path = args.next().unwrap();
