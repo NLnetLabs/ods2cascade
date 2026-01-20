@@ -63,6 +63,7 @@ This will:
 If the process ran successfully, output should look something like this:
 
   .. code-block:: bash
+
      Welcome to ods2cascade.
 
      This tool will generate files and instructions that you can use to configure Cascade to match the setup of an existing OpenDNSSEC deployment.
