@@ -569,7 +569,7 @@ impl Migrator {
                 cmd_file,
                 "sudo chown {c_user} {c_pol_dir}/{c_pol_name}.toml"
             )?;
-            writeln!(cmd_file, "sudo chmod u+rx {c_pol_dir}/{c_pol_name}.toml")?;
+            writeln!(cmd_file, "sudo chmod u+r {c_pol_dir}/{c_pol_name}.toml")?;
         }
 
         writeln!(cmd_file)?;

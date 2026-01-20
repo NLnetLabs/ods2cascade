@@ -3,7 +3,7 @@ sudo cp out/policies/minimal.toml /etc/cascade/policies/
 
 # Set the copied policy file ownership and permissions so that Cascade can read the files.
 sudo chown test /etc/cascade/policies/minimal.toml
-sudo chmod u+rx /etc/cascade/policies/minimal.toml
+sudo chmod u+r /etc/cascade/policies/minimal.toml
 
 # Tell Cascade to reload its policy files.
 cascade --server 127.0.0.1:4539 policy reload
