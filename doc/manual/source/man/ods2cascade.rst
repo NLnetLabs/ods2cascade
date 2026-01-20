@@ -4,7 +4,7 @@ Ods2Cascade CLI
 Synopsis
 --------
 
-:program:`ods2cascade` ``<path/to/casade.toml>`` ``<path/to/opendnssec/conf.xml>`` ``<path/to/write/files/to>``
+:program:`ods2cascade` ``[-h|--help|-V|--version]`` ``<path/to/casade.toml>`` ``<path/to/opendnssec/conf.xml>`` ``<path/to/write/files/to>``
 
 Description
 -----------
