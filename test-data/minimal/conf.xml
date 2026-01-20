@@ -7,7 +7,7 @@
   </Common>
   <Enforcer>
     <Datastore>
-      <SQLite>kasp.db</SQLite>
+      <Test>db.ron</Test>
     </Datastore>
     <!-- Set an empty working directory to override the default /var/opendnssec/tmp -->
     <WorkingDirectory />
