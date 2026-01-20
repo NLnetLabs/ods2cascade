@@ -18,6 +18,7 @@ use cascaded::policy::{
     ServerPolicy, SignerDenialPolicy, SignerPolicy, SignerSerialPolicy,
 };
 use domain::base::Ttl;
+use kmip2pkcs11_cfg::daemonbase::process::{GroupId, UserId};
 use quick_xml::DeError;
 use schema::xml::addns::{Adapter, Outbound};
 use schema::xml::conf::Configuration;
@@ -377,12 +378,43 @@ impl Migrator {
         // Generate kmip2pkcs11 configuration fragments.
         let mut k2p_conf_paths = vec![];
         for o_repo in &o_conf.repository_list.repositories {
-            let lib_path = &o_repo.module;
+            let lib_path = PathBuf::from_str(&o_repo.module)
+                .map_err(|err| anyhow!("Invalid PKCS#11 module path '{}': {err}", o_repo.module))?;
             let hsm_name = sanitize_filename::sanitize(&o_repo.name);
             let out_path = format!("{k2p_dir}/{hsm_name}.toml");
             println!("Generating '{out_path}'...");
+
+            let mut daemon = kmip2pkcs11_cfg::v1::DaemonConfig::default();
+            daemon.log.level = kmip2pkcs11_cfg::v1::LogLevel::Warning;
+            daemon.log.target = kmip2pkcs11_cfg::v1::LogTarget::Syslog;
+            daemon.daemonize = true;
+
+            // TODO: Add chroot support to kmip2pkcs11 and supply privileges.directory.
+            if let Some(Privileges {
+                user: Some(user),
+                group,
+                ..
+            }) = o_conf.signer.as_ref().and_then(|c| c.privileges.as_ref())
+            {
+                let user_id = UserId::from_str(user)
+                    .map_err(|err| anyhow!("Invalid user id '{user}': {err}"))?;
+                let group = group.as_ref().unwrap_or(user);
+                let group_id = GroupId::from_str(group)
+                    .map_err(|err| anyhow!("Invalid group id '{group}': {err}"))?;
+                daemon.identity = Some((user_id, group_id));
+            }
+
+            let pkcs11 = kmip2pkcs11_cfg::v1::Pkcs11Config { lib_path };
+
+            let kmip2pkcs11_conf = kmip2pkcs11_cfg::Config::V1(kmip2pkcs11_cfg::v1::Config {
+                daemon,
+                pkcs11,
+                server: Default::default(),
+            });
+
+            let toml = toml::to_string_pretty(&kmip2pkcs11_conf)?;
             let mut out_file = io.create(&out_path)?;
-            writeln!(out_file, r#"lib_path = "{lib_path}""#)?;
+            out_file.write_all(toml.as_bytes())?;
             k2p_conf_paths.push(out_path);
         }
 
@@ -809,7 +841,7 @@ impl Migrator {
               - Use of sudo or not.
               - Use of SELinux or AppArmor.
             
-            The end result of following the suggested steps, once adjusted for your particular setup, will be that the OpenDNSSEC process no longer runs, communicates with your HSM, signs or serves zones, instead these will all be handled by Cascade instead.
+            The end result of following the suggested steps, once adjusted for your particular setup, will be that the OpenDNSSEC process no longer runs, communicates with your HSM, signs or serves zones, instead these will all be handled by Cascade.
             
             Note that there may still be tasks remaining after migration that are specific to your setup, including but not limited to:
             
@@ -918,6 +950,7 @@ impl Migrator {
             p.note(format!(
                     "Your kmip2pkcs11 instance will run as user '{user}' thus the kmip2pkcs11 configuration file should be readable by this user."
                 ))?;
+            p.println("")?;
         }
         // TODO: Should the copied files be chown'd to the kmip2pkcs11 user?
         p.code_block("sh", format!("sudo cp {k2p_dir}/*.toml /etc/kmip2pkcs11/"))?;
@@ -1578,8 +1611,20 @@ mod test {
     }
 
     #[tokio::test]
+    async fn kmip2pkcs11_should_use_same_user_and_group_as_ods_signer() -> anyhow::Result<()> {
+        run_test("1p-1z-signer-privs-user-and-group").await?;
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn single_policy_two_zones_two_hsms() -> anyhow::Result<()> {
         run_test("1p-2z-2hsm").await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn kmip2pkcs11_should_use_same_user_as_ods_signer() -> anyhow::Result<()> {
+        run_test("1p-1z-signer-privs-user-only").await?;
         Ok(())
     }
 

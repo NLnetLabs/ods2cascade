@@ -24,6 +24,7 @@ Note that there may still be tasks remaining after migration that are specific t
 
 > [!WARNING]
 > - Signed zones will NOT be written to disk. Cascade only supports publication of signed zones via XFR. You will need a secondary nameserver or some other tool receive/fetch new signed zone versions via XFR.
+> - Cascade implements incremental signing differently than OpenDNSSEC and as such neither needs nor supports the OpenDNSSEC jitter functionality. Jitter settings will be ignored.
 
 
 ## Migration steps
@@ -49,33 +50,27 @@ servers = ["0.0.0.0:53"]
 Or use some other tool to retrieve signed zones via XFR and write them to disk.
 This is needed because your OpenDNSSEC instance writes signed zones to disk which Cascade is not yet able to do.
 
-# 3. Validate your kmip2pkcs11 configuration files.
+# 3. Validate your kmip2pkcs11 configuration file.
 
 E.g.
 ```sh
 kmip2pkcs11 -c out/kmip2pkcs11/somehsm.toml --check-config
-kmip2pkcs11 -c out/kmip2pkcs11/someotherhsm.toml --check-config
 ```
 
-# 4. Copy the kmip2pkcs11 configuration files to the proper location.
+# 4. Copy the kmip2pkcs11 configuration file to the proper location.
 
 > [!NOTE]
-> This should be a location that the kmip2pkcs11 instances will have read access to.
+> This should be a location that the kmip2pkcs11 instance will have read access to.
+
+> [!NOTE]
+> Your kmip2pkcs11 instance will run as user 'root' thus the kmip2pkcs11 configuration file should be readable by this user.
 
 E.g.
 ```sh
 sudo cp out/kmip2pkcs11/*.toml /etc/kmip2pkcs11/
 ```
 
-# 5. Create additional kmip2pkcs11 systemd units.
-
-If using systemd to control kmip2pkcs11 you will need to create separate kmip2pkcs11 units for each of the following kmip2pkcs11 configuration files.
-Each systemd kmip2pkcs11 unit should invoke kmi2pkcs11 with `--config` specifying its own kmi2pkcs11 configuration file.
-
-  - `/etc/kmip2pkcs11/somehsm.toml`
-  - `/etc/kmip2pkcs11/someotherhsm.toml`
-
-# 6. Stop OpenDNSSEC.
+# 5. Stop OpenDNSSEC.
 
 > [!WARNING]
 > Executing this command will SHUTDOWN your OpenDNSSEC instance.
@@ -85,24 +80,27 @@ E.g.
 sudo ods-control stop
 ```
 
-# 7. Start kmip2pkcs11 once for each HSM to be connected to.
+# 6. Start kmip2pkcs11.
 
-If using systemd to control kmip2pkcs11, start each of the kmip2pkcs11 units that you created above.
+If using systemd:
+E.g.
+```sh
+sudo systemctl start kmip2pkcs11
+```
 Otherwise:
 E.g.
 ```sh
 sudo kmip2pkcs11 -c /etc/kmip2pkcs11/somehsm.toml
-sudo kmip2pkcs11 -c /etc/kmip2pkcs11/someotherhsm.toml
 ```
 
-# 8. Validate your Cascade configuration.
+# 7. Validate your Cascade configuration.
 
 E.g.
 ```sh
 sudo cascaded -c conf.toml --check-config
 ```
 
-# 9. Start Cascade.
+# 8. Start Cascade.
 
 E.g.
 ```sh
@@ -114,14 +112,14 @@ E.g.
 sudo cascaded -c conf.toml
 ```
 
-# 10. Review the generated commands that will be used to configure Cascade.
+# 9. Review the generated commands that will be used to configure Cascade.
 
 E.g.
 ```sh
 less out/commands.sh
 ```
 
-# 11. Execute the generated commands to configure Cascade.
+# 10. Execute the generated commands to configure Cascade.
 
 > [!WARNING]
 > This step will cause zones to be added and signed. If you have a lot of zones or very large zones this could use a lot of CPU and/or memory. Please review the commands in `out/commands.sh` before executing the script.
