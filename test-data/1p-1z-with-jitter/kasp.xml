@@ -9,7 +9,7 @@
         <Default>P14D</Default>
         <Denial>P14D</Denial>
       </Validity>
-      <Jitter>PT0H</Jitter>
+      <Jitter>PT12H</Jitter>
       <InceptionOffset>PT3600S</InceptionOffset>
     </Signatures>
     <Denial>
