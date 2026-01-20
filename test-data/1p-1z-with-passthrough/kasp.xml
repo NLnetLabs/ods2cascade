@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <KASP>
   <Policy name="minimal">
+    <Passthrough/>
     <Description>A minimal policy</Description>
     <Signatures>
       <Resign>PT0H</Resign>
