@@ -5,49 +5,21 @@ A tool for assisting operators with migration from OpenDNSSEC to [Cascade](https
 `ods2cascade`:
   - _Reads_ OpenDNSSEC configuration files and the Enforcer Database.
   - Does **NOT** modify any existing Cascade or OpenDNSSEC instances.
-  - Outputs generated files for use with Cascade to a user-specified directory.
+  - Outputs generated configuration and policy files for use with Cascade to a user-specified directory.
+  - Generates a `README.md` with suggested steps and commands, tailored to your deployment, to perform the migration.
 
 # Status
 
-Able to handle migration of some simple OpenDNSSEC setups.
-
-Progress:
-  - [x] Read **well-formed** OpenDNSSEC `conf.xml`, `kasp.xml`, `addns.xml`, `zonelist.xml`, `zones.xml` and `signconf.xml` files.
-  - [x] Read **well-formed** Cascade config TOML file.
-  - [x] Read **well-formed** SQLite/MySQL Enforcer database fields.
-  - [x] Determine the set of PKCS#11 keys to import.
-  - [x] Read HSM configuration from OpenDNSSEC configuration.
-  - [x] Read database configuration from OpenDNSSEC configuration.
-  - [ ] Determine the OpenDNSSEC source of truth to use for each Cascade setting to be configured.
-  - [ ] Determine how to map any concepts in OpenDNSSEC that have exactly corresponding counterparts in Cascade.
-    - [x] Handle the 2:1 mapping of separate but related OpenDNSSEC KASP policy and ADDNS XML files onto single Cascade policy files.
-  - [x] Generate Cascade policy files by serializing Cascade data types.
-  - [x] Generate `kmip2pkcs11` configuration for each OpenDNSSEC "Repository".
-  - [ ] Generate Cascade configuration. BLOCKED, see [#36](https://github.com/NLnetLabs/ods2cascade/pull/36), 
-  - [x] Generate a shell script containing the sequence of commands needed to: - NOTE: Now generates a `README.md`.
-    - [x] Install generated Cascade policy files.
-    - [x] Instruct Cascade to reload policy.
-    - [x] Instruct Cascade to add HSMs.
-    - [x] Instruct Cascade to add zones
-      - [x] Using the correct policy.
-      - [x] Using the correct HSM.
-      - [x] Using the correct keys.
+`ods2cascade` can assist with migrating simple OpenDNSSEC setups and supports a subset of the OpenDNSSEC feature set.
 
 # Usage
 
-`ods2cascade` requires that Cascade already be installed.
+Documentation for `ods2cascade` can be found online at https://cascade.docs.nlnetlabs.nl/projects/ods2cascade/en/latest/.
 
-`ods2cascade` requires three filesystem paths as input:
+# Contacting us
 
-1. The path to the config file of your new Cascade instance.
-3. The path to the config file of the OpenDNSSEC instance to migrate.
-4. The path to a directory to create that will contain generated policy files and a migration shell script.
+Share your questions and experiences with our community at https://community.nlnetlabs.nl/.
 
-When invoked `ods2cascade` will:
-  - Read the specified Cascade configuration file.
-  - Read the specified OpenDNSSEC configuration and any files that references.
-  - Query the specified OpenDNSSEC Enforcer database using the connection details specified in the OpenDNSSEC configuration.
-  - Generate Cascade configuration and policy files.
-  - Generate `kmip2pkcs11` configuration files.
-  - Generate a `README.md` containing instructions and shell commands required to complete the migration.
-  - Generate a `commands.sh` file which contains Cascade CLI commands to automate setup of Casacde, once the steps in the generated `README.md` steps have been followed.
+For bug reports and simple feature requests please [create a GitHub issue](https://github.com/NLnetLabs/ods2cascade/issues).
+
+We also offered paid [support](https://nlnetlabs.nl/services/contracts/) and [consultancy](https://nlnetlabs.nl/services/consultancy/) for more complex migrations and feature requests.
