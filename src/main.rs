@@ -29,8 +29,11 @@ use sqlx::{Connection, MySqlConnection, SqliteConnection};
 
 #[cfg(not(test))]
 use crate::schema::xml::conf::{Host, Mysql};
-use crate::schema::xml::kasp::SerialEnum;
-use crate::schema::xml::{conf::DatastoreEnum, kasp::DenialEnum};
+use crate::schema::xml::{
+    common::{DenialEnum, SerialEnum},
+    conf::DatastoreEnum,
+    signconf::SignerConfiguration,
+};
 use crate::{
     io::{Fs, FsOps},
     schema::xml::conf::Privileges,
@@ -258,6 +261,9 @@ impl Migrator {
         // ODS zone name -> ODS signed zone output path
         let _o_signed_zone_output_paths_by_zone_name = BTreeMap::<String, String>::new();
 
+        // ODS zone name -> Details of keys to import into Cascade.
+        let mut c_keys_to_import_by_zone_name = BTreeMap::<String, Vec<KeyToImport>>::new();
+
         // Does ODS have at least one zone which it writes to disk rather than
         // serves via XFR?
         let mut o_writes_signed_zones_to_disk = false;
@@ -481,6 +487,51 @@ impl Migrator {
             c_pol_by_c_pol_name.insert(c_pol_name.to_string(), c_pol);
         }
 
+        // Collect the details of keys to import per zone.
+        for zone in &o_zone_list.zones {
+            let db_zone = db_zones
+                .iter()
+                .find(|z| z.name == zone.name)
+                .expect("The zone must exist in the DB as we checked this already");
+
+            let xml = io.read_to_string(&db_zone.signconf_path)?;
+            let sign_conf: SignerConfiguration = process_xml(&xml)?;
+            let safe_zone_name = sanitize_filename::sanitize(&zone.name);
+            io.dbg_to_file(&sign_conf, &format!("sign_conf_{safe_zone_name}"), &dbg_dir)?;
+
+            // Extract the KSK and ZSK keys that have <Publish/> set.
+            // TODO: Add support for keys with no locator but with a
+            // resource_record field set instead?
+            let mut keys_to_import = vec![];
+            for key in &sign_conf.zone.keys.keys {
+                if key.publish.is_some()
+                    && let Some(locator) = &key.locator
+                {
+                    let flags = u16::from_str(&key.flags.value).unwrap();
+                    let algorithm = u8::from_str(&key.algorithm.value).unwrap();
+                    let key_type = match (key.ksk, key.zsk) {
+                        (None, None) => None,
+                        (None, Some(_)) => Some(KeyType::Zsk),
+                        (Some(_), None) => Some(KeyType::Ksk),
+                        (Some(_), Some(_)) => Some(KeyType::Csk),
+                    };
+
+                    if let Some(key_type) = key_type {
+                        keys_to_import.push(KeyToImport {
+                            locator: locator.clone(),
+                            flags,
+                            algorithm,
+                            key_type,
+                        });
+                    }
+                }
+            }
+
+            if !keys_to_import.is_empty() {
+                c_keys_to_import_by_zone_name.insert(zone.name.clone(), keys_to_import);
+            }
+        }
+
         // Output `cascade` commands for the user to run.
         println!("Generating '{output_dir_path}/commands.sh'...");
         let cmd_file_path = format!("{output_dir_path}/commands.sh");
@@ -516,16 +567,61 @@ impl Migrator {
                 source = format!("{ip_addr}:{port}");
             }
 
+            // Construct the `cascade zone add` command to emit.
+            let mut cmd =
+                format!("cascade {c_cli_args} zone add --policy {c_pol_name} --source {source} ");
+
+            if let Some(keys) = c_keys_to_import_by_zone_name.get(&zone.name) {
+                for key in keys {
+                    match key.key_type {
+                        KeyType::Zsk => cmd += "--import-zsk-kmip ",
+                        KeyType::Ksk => cmd += "--import-ksk-kmip ",
+                        KeyType::Csk => cmd += "--import-csk-kmip ",
+                    }
+
+                    // The signconf has the CKA_ID locator for the key but
+                    // doesn't say which ODS HSM repisitory contains the key,
+                    // as ODS will just try all known repositories to find
+                    // the key. Cascade can't do that so we need to know which
+                    // repository it should be in. We get that from the zone
+                    // policy.
+                    let cascaded::policy::file::Spec::V1(c_pol) =
+                        c_pol_by_c_pol_name.get(c_pol_name).unwrap();
+                    let hsm_server_id =
+                        c_pol.key_manager.generation.hsm_server_id.as_ref().unwrap();
+
+                    // OpenDNSSEC generates public/private keys which both
+                    // have the same CKA_ID. KMIP however requires these
+                    // two identifiers to be unique. kmip2pkcs11 handles
+                    // this need for uniqueness by suffixing the keys with
+                    // _pub and _priv respectively, but usually this mapping
+                    // process is invisible to the user of kmip2pkcs11 as
+                    // they only see the generated KMIP IDs, not the internal
+                    // CKA_IDs. As in this case the keys were not created
+                    // by kmip2pkcs11 we have to "uniqify" them ourselves
+                    // before passing them to Cascade which in turn will pass
+                    // them to kmip2pkcs11. It may be possible in future to
+                    // provide CKA_IDs, but not at the time of writing. See
+                    // https://github.com/NLnetLabs/kmip2pkcs11/pull/24 for
+                    // more information.
+                    let public_id = format!("{}_pub", key.locator);
+                    let private_id = format!("{}_priv", key.locator);
+
+                    cmd += &format!(
+                        "{hsm_server_id} {public_id} {private_id} {} {} ",
+                        key.algorithm, key.flags
+                    );
+                }
+            }
+
+            cmd += &zone.name;
+
             // TODO: Adding the zone can fail if the zone file is readable by
             // the cascaded daemon but not by the cascade CLI, even though the
             // CLI shouldn't need read access to it as it only sends the path
             // to the daemon. It fails when attempting to canonicalize the
             // path to the zone file.
-            writeln!(
-                cmd_file,
-                "cascade {c_cli_args} zone add --policy {c_pol_name} --source {source} {}",
-                zone.name
-            )?;
+            writeln!(cmd_file, "{cmd}")?;
 
             cmd_file.flush()?;
         }
@@ -1285,6 +1381,19 @@ impl DbConn {
             DbConn::Test(db) => Ok(db.zone.clone()),
         }
     }
+}
+
+struct KeyToImport {
+    pub locator: String,
+    pub flags: u16,
+    pub algorithm: u8,
+    pub key_type: KeyType,
+}
+
+enum KeyType {
+    Zsk,
+    Ksk,
+    Csk,
 }
 
 // TESTING
