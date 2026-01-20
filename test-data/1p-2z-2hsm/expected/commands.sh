@@ -18,5 +18,5 @@ cascade --server 127.0.0.1:4539 hsm add --insecure --username OpenDNSSEC --passw
 cascade --server 127.0.0.1:4539 hsm add --insecure --username OpenDNSSEC --password 1234 someotherhsm 127.0.0.1
 
 # Tell Cascade to load and sign our zones using the appropriate policies.
-cascade --server 127.0.0.1:4539 zone add --policy hsm1 --source minimal.zone somezone
-cascade --server 127.0.0.1:4539 zone add --policy hsm2 --source minimal.zone someotherzone
+cascade --server 127.0.0.1:4539 zone add --policy hsm1 --source minimal.zone --import-ksk-kmip somehsm DFE7265B783F418685380AA784C2F31D_pub DFE7265B783F418685380AA784C2F31D_priv 5 257 --import-zsk-kmip somehsm 8D76C0C49FEB4A97B8E920C7552401CE_pub 8D76C0C49FEB4A97B8E920C7552401CE_priv 5 256 somezone
+cascade --server 127.0.0.1:4539 zone add --policy hsm2 --source minimal.zone --import-ksk-kmip someotherhsm DFE7265B783F418685380AA784C2F31D_pub DFE7265B783F418685380AA784C2F31D_priv 5 257 --import-zsk-kmip someotherhsm 8D76C0C49FEB4A97B8E920C7552401CE_pub 8D76C0C49FEB4A97B8E920C7552401CE_priv 5 256 someotherzone

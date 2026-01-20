@@ -1,7 +1,11 @@
 #![allow(dead_code)]
 
+use serde::Deserialize;
+
 pub mod zone {
-    #[derive(Debug, sqlx::FromRow)]
+    use serde::Deserialize;
+
+    #[derive(Debug, sqlx::FromRow, Deserialize, Clone)]
     #[sqlx(rename_all = "camelCase")]
     pub struct Zone {
         pub id: u64,
@@ -17,7 +21,9 @@ pub mod zone {
 }
 
 pub mod policy {
-    #[derive(Debug, sqlx::FromRow)]
+    use serde::Deserialize;
+
+    #[derive(Debug, sqlx::FromRow, Deserialize, Clone)]
     #[sqlx(rename_all = "camelCase")]
     pub struct Policy {
         pub id: u64,
@@ -36,7 +42,7 @@ pub mod policy {
         pub parent: Parent,
     }
 
-    #[derive(Debug, sqlx::FromRow)]
+    #[derive(Debug, sqlx::FromRow, Deserialize, Clone)]
     pub struct Signatures {
         #[sqlx(rename = "signaturesResign")]
         pub resign: u32,
@@ -52,7 +58,7 @@ pub mod policy {
         pub max_zone_ttl: u32,
     }
 
-    #[derive(Debug, sqlx::FromRow)]
+    #[derive(Debug, sqlx::FromRow, Deserialize, Clone)]
     pub struct Denial {
         /// 0  - NSEC
         /// 1? - NSEC3
@@ -74,7 +80,7 @@ pub mod policy {
         pub salt: String,
     }
 
-    #[derive(Debug, sqlx::FromRow)]
+    #[derive(Debug, sqlx::FromRow, Deserialize, Clone)]
     pub struct Validity {
         #[sqlx(rename = "signaturesValidityDefault")]
         pub default: u32,
@@ -84,7 +90,7 @@ pub mod policy {
         pub keyset: Option<u32>,
     }
 
-    #[derive(Debug, sqlx::FromRow)]
+    #[derive(Debug, sqlx::FromRow, Deserialize, Clone)]
     pub struct Keys {
         #[sqlx(rename = "keysTtl")]
         ttl: u32,
@@ -98,7 +104,7 @@ pub mod policy {
         purge: u32,
     }
 
-    #[derive(Debug, sqlx::FromRow)]
+    #[derive(Debug, sqlx::FromRow, Deserialize, Clone)]
     pub struct Zone {
         #[sqlx(rename = "zonePropagationDelay")]
         pub propagation_delay: u32,
@@ -106,7 +112,7 @@ pub mod policy {
         pub soa: ZoneSoa,
     }
 
-    #[derive(Debug, sqlx::FromRow)]
+    #[derive(Debug, sqlx::FromRow, Deserialize, Clone)]
     pub struct ZoneSoa {
         #[sqlx(rename = "zoneSoaTtl")]
         pub ttl: u32,
@@ -116,7 +122,7 @@ pub mod policy {
         pub serial: u32,
     }
 
-    #[derive(Debug, sqlx::FromRow)]
+    #[derive(Debug, sqlx::FromRow, Deserialize, Clone)]
     pub struct Parent {
         #[sqlx(rename = "parentPropagationDelay")]
         pub propagation_delay: u32,
@@ -128,13 +134,13 @@ pub mod policy {
         pub registration_delay: u32,
     }
 
-    #[derive(Debug, sqlx::FromRow)]
+    #[derive(Debug, sqlx::FromRow, Deserialize, Clone)]
     pub struct Ds {
         #[sqlx(rename = "parentDsTtl")]
         pub ttl: u32,
     }
 
-    #[derive(Debug, sqlx::FromRow)]
+    #[derive(Debug, sqlx::FromRow, Deserialize, Clone)]
     pub struct Soa {
         #[sqlx(rename = "parentSoaTtl")]
         pub ttl: u32,
@@ -142,7 +148,7 @@ pub mod policy {
         pub minimum: u32,
     }
 
-    #[derive(Debug, sqlx::FromRow)]
+    #[derive(Debug, sqlx::FromRow, Deserialize, Clone)]
     #[sqlx(rename_all = "camelCase")]
     pub struct Key {
         pub id: u64,
@@ -159,7 +165,7 @@ pub mod policy {
     }
 }
 
-#[derive(Debug, sqlx::FromRow)]
+#[derive(Debug, sqlx::FromRow, Deserialize, Clone)]
 #[sqlx(rename_all = "camelCase")]
 pub struct DatabaseVersion {
     pub id: u64,

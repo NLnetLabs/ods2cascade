@@ -216,7 +216,10 @@ mod inner {
                 .lock()
                 .unwrap()
                 .get(&path.as_ref().to_path_buf())
-                .ok_or(std::io::Error::from(std::io::ErrorKind::NotFound))
+                .ok_or(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    format!("Test data file '{}' not found", path.as_ref().display()),
+                ))
                 .and_then(|file| {
                     // Behave the same way as std::io::read_to_string()
                     String::from_utf8(file.content.clone()).map_err(|_| {
