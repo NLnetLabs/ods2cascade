@@ -1229,8 +1229,12 @@ impl DbConn {
     #[cfg(test)]
     async fn new<IO: FsOps>(datastore: &DatastoreEnum, io: &IO) -> Result<DbConn, sqlx::Error> {
         match datastore {
-            DatastoreEnum::mysql(_) => panic!("Tests don't currently support the <MySQL> datastore type, use <Test>db.ron</Test> instead"),
-            DatastoreEnum::sqlite(_) => panic!("Tests don't currently support the <SQLite> datastore type, use <Test>db.ron</Test> instead"),
+            DatastoreEnum::mysql(_) => panic!(
+                "Tests don't currently support the <MySQL> datastore type, use <Test>db.ron</Test> instead"
+            ),
+            DatastoreEnum::sqlite(_) => panic!(
+                "Tests don't currently support the <SQLite> datastore type, use <Test>db.ron</Test> instead"
+            ),
             DatastoreEnum::test(ron_data_path) => {
                 let ron_data = io.read_to_string(ron_data_path)?;
                 let snapshot: TestDbSnapshot = ron::from_str(&ron_data).map_err(|err| {
