@@ -43,7 +43,7 @@ locations, we can invoke :program:`ods2cascade` like so:
 
   .. code-block:: bash
 
-     $ ods2cascade /etc/opendnssec/conf.xml /etc/cascade/config.toml /tmp/ods2cascade-out
+     $ ods2cascade /etc/opendnssec/conf.xml /etc/cascade/config.toml /tmp/out
 
 This will:
 
@@ -52,8 +52,49 @@ This will:
   - Connect to the OpenDNSSEC database using the credentials found in the
     OpenDNSSEC configuration to determine the location of the "signconf" XML
     files and to verify some settings.
-  - Generate Cascade policy and :doc:`kmip2pkcs11` configuration files.
-  - Generate a ``README.md`` file that will describe the steps that need to be
+  - Generate Cascade policy and :doc:`kmip2pkcs11` configuration files in the
+    ``/tmp/out/`` directory.
+  - Generate a ``/tmp/out/README.md`` file that will describe the steps that need to be
     taken to migrate from OpenDNSSEC to Cascade.
-  - Generate a script containing Cascade CLI commands to run to finalize the
-    configuration of :doc:`cascade`.
+  - Generate a ``/tmp/out/commands.sh`` script containing Cascade CLI commands
+    to run to finalize the configuration of :doc:`cascade`, to be used as described in
+    the generated ``README.md``.
+
+If the process ran successfully, output should look something like this:
+
+  .. code-block:: bash
+     Welcome to ods2cascade.
+
+     This tool will generate files and instructions that you can use to configure Cascade to match the setup of an existing OpenDNSSEC deployment.
+
+     NOTE: This tool will NOT modify your existing OpenDNSSEC or Cascade installation.
+
+     Provided inputs:
+       - OpenDNSSEC config file: /etc/opendnssec/conf.xml
+       - Cascade config file   : /etc/cascade/config.toml
+       - Output directory      : /tmp/out
+
+     Gathering inputs and generating outputs:
+
+     Loading /etc/cascade/config.toml...
+     Loading /etc/opendnssec/conf.xml...
+     Loading /etc/opendnssec/kasp.xml...
+     Loading /var/opendnssec/enforcer/zones.xml...
+     Connecting to SQLite Enforcer database at sqlite:///var/opendnssec/kasp.db...
+     Found Enforcer database version: 1
+     Generating '/tmp/out/kmip2pkcs11/SoftHSM.toml'...
+     Creating Cascade policy 'lab' from ODS KASP 'lab'....
+     Generating '/tmp/out/commands.sh'...
+
+     Gathering of inputs and generation of outputs is complete.
+     Please consult /tmp/out/README.md which advises how to proceed in order to perform the migration.
+
+Once completed successfully the next step is, as directed, to read ``out/README.md`` and follow
+the steps it describes.
+
+Note that the generated steps are suggestions only, you will need to read
+and carefully consider the guidance in the generated ``README.md`` and adjust
+it for aspects of your environment that :program:`ods2cascade` is unaware
+of, such as which user commands should be executed as, whether or not to use
+``sudo``, whether or not your daemons are managed by systemd or some other
+mechanism, and so on.
