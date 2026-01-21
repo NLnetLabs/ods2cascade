@@ -952,13 +952,13 @@ impl Migrator {
         if o_uses_non_sha1_nsec3_hash_alg {
             writeln!(
                 &mut changes,
-                "> - Cascade only supports [RFC 5155](https://datatracker.ietf.org/doc/rfc5155/) NSEC3 algorithm 1 (SHA-1)"
+                "> - Cascade only supports [RFC 5155](https://datatracker.ietf.org/doc/rfc5155/) NSEC3 hashing algorithm 1 (SHA-1). Cascade will use SHA-1 NSEC3 hashing."
             )?;
         }
         if o_uses_non_bcp_nsec3_params {
             writeln!(
                 &mut changes,
-                "> - Cascade only supports [RFC 9276/BCP 236](https://datatracker.ietf.org/doc/rfc9276/) NSEC3 parameter settings: 0 iterations, no salt. At least one zone was detected that uses non-BCP iteration and salt settings. Affected zones will be signed by Cascade using BCP iteration and salt settings."
+                "> - Cascade only supports [RFC 9276/BCP 236](https://datatracker.ietf.org/doc/rfc9276/) NSEC3 parameter settings: 0 iterations, no salt. Cascade will use BCP iteration and salt settings."
             )?;
         }
         if o_uses_jitter {
@@ -969,9 +969,11 @@ impl Migrator {
         }
 
         if !changes.is_empty() {
-            changes = format!(
-                "## Important differences with Cascade compared to OpenDNSSEC\n\n> [!WARNING]\n{changes}"
-            );
+            changes = indoc::formatdoc!("## Important differences with Cascade compared to OpenDNSSEC
+
+                > [!WARNING]
+                > One or more of your OpenDNSSEC configuration settings is unsupported by or handled differently by Cascade:
+                {changes}");
         }
 
         let mut p = MarkdownWriter::new("#");
@@ -1000,9 +1002,7 @@ impl Migrator {
               - Updating your backup and monitoring procedures.
             
             {changes}
-            
             ## Migration steps
-
         "))?;
 
         #[cfg(not(test))]

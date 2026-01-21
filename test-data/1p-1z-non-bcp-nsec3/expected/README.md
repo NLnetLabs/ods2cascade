@@ -23,12 +23,12 @@ Note that there may still be tasks remaining after migration that are specific t
 ## Important differences with Cascade compared to OpenDNSSEC
 
 > [!WARNING]
+> One or more of your OpenDNSSEC configuration settings is unsupported by or handled differently by Cascade:
 > - Signed zones will NOT be written to disk. Cascade only supports publication of signed zones via XFR. You will need a secondary nameserver or some other tool receive/fetch new signed zone versions via XFR.
-> - Cascade only supports [RFC 9276/BCP 236](https://datatracker.ietf.org/doc/rfc9276/) NSEC3 parameter settings: 0 iterations, no salt. At least one zone was detected that uses non-BCP iteration and salt settings. Affected zones will be signed by Cascade using BCP iteration and salt settings.
-
+> - Cascade only supports [RFC 5155](https://datatracker.ietf.org/doc/rfc5155/) NSEC3 hashing algorithm 1 (SHA-1). Cascade will use SHA-1 NSEC3 hashing.
+> - Cascade only supports [RFC 9276/BCP 236](https://datatracker.ietf.org/doc/rfc9276/) NSEC3 parameter settings: 0 iterations, no salt. Cascade will use BCP iteration and salt settings.
 
 ## Migration steps
-
 
 > [!WARNING]
 > The commands shown below are examples only and require your review and may need adjusting for your setup.
