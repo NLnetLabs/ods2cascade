@@ -389,6 +389,12 @@ impl Migrator {
         // Does ODS use non BCP NSEC3 parameters?
         let mut o_uses_non_bcp_nsec3_params = false;
 
+        // Does ODS restrict outbound XFR?
+        let mut o_restricts_outbound_xfr = false;
+
+        // Does ODS use TSIG keys to restrict inbound or outbound access?
+        let mut o_uses_tsig = false;
+
         // So for each combination of ODS policy and zone output adapter we need
         // a different Cascade policy.
         //
@@ -407,57 +413,75 @@ impl Migrator {
         // If there *is* an output addns.xml path, use the ODS policy name plus
         // a hash of the addns.xml path as the Cascade policy name.
         for o_zone in &o_zone_list.zones {
-            // TODO: Process the input adapter.
-
             // Process the output adapter, loading any addns.xml file referred
             // to and returning its path if one were specified.
             process_adapter(
-            &o_zone.adapters.output.adapter,
-            &mut o_adapter_by_addns_path,
-            io,
-        )?.and_then(|o_addns_path| {
-            // This zone has an ODS output adapter of type DNS with zone
-            // transfer settings defined via an addns.xml file. Confusingly
-            // the ODS addns.rnc XML schema file defines that the Outbound
-            // element is optional, but if not specified ODS will refuse XFR
-            // requests for the zone, but also won't have written the signed
-            // zone to a file, presumably making it useless to sign the zone.
-            if o_adapter_by_addns_path
-                .get(&o_addns_path)
-                .map(|adapter| &adapter.dns.outbound)
-                .is_none()
+                &o_zone.adapters.output.adapter,
+                &mut o_adapter_by_addns_path,
+                io,
+            )?.and_then(|o_addns_path| {
+                // This zone has an ODS output adapter of type DNS with zone
+                // transfer settings defined via an addns.xml file. Confusingly
+                // the ODS addns.rnc XML schema file defines that the Outbound
+                // element is optional, but if not specified ODS will refuse XFR
+                // requests for the zone, but also won't have written the signed
+                // zone to a file, presumably making it useless to sign the zone.
+                if let Some(adapter) = o_adapter_by_addns_path.get(&o_addns_path) {
+                    let Some(outbound) = &adapter.dns.outbound else
+                    {
+                        eprintln!("Zone '{}' will be ignored as it has output adapter type DNS but lacks an Outbound configuration and thus will never be written to disk or served via XFR.", o_zone.name);
+                        return None;
+                    };
+
+                    if outbound.provide_transfer.is_some() {
+                        o_restricts_outbound_xfr = true;
+                    }
+
+                    o_uses_tsig |= !adapter.dns.tsig.is_empty();
+                }
+
+                // Remember the mapping of zone name to output addns path.
+                o_addns_path_by_o_zone_name.insert(o_zone.name.clone(), o_addns_path.clone());
+
+                // This zone uses a DNS output adapter. Generate a hashed policy
+                // name for Cascade.
+                let o_pol_name = o_zone.policy.clone();
+                let mut hasher = std::hash::DefaultHasher::new();
+                o_addns_path.hash(&mut hasher);
+                let hash = hasher.finish().to_string();
+                let c_pol_name = sanitize_filename::sanitize(format!("{o_pol_name}-{hash}"));
+
+                // Remember the Cascade policy name for this combination of ODS
+                // policy name name and addns path.
+                let key = (o_pol_name, Some(o_addns_path));
+
+                c_pol_name_by_o_pol_name_plus_addns_path.insert(key, c_pol_name) //.clone())
+            })
+            .or_else(|| {
+                // This zone was NOT configured in ODS with zone transfer settings
+                // and so it must be written by ODS to disk when signed.
+                // Remember the Cascade policy name for this ODS policy name.
+                o_writes_signed_zones_to_disk = true;
+                let o_pol_name = o_zone.policy.clone();
+                let o_pol_name = sanitize_filename::sanitize(o_pol_name);
+                let key = (o_pol_name.clone(), None);
+                c_pol_name_by_o_pol_name_plus_addns_path.insert(key, o_pol_name)
+            });
+
+            // Process the input adapter, loading any addns.xml file referred
+            // to and returning its path if one were specified.
+            if let Some(o_addns_path) = process_adapter(
+                &o_zone.adapters.input.adapter,
+                &mut o_adapter_by_addns_path,
+                io,
+            )? && let Some(adapter) = o_adapter_by_addns_path.get(&o_addns_path)
             {
-                eprintln!("Zone '{}' will be ignored as it has output adapter type DNS but lacks an Outbound configuration and thus will never be written to disk or served via XFR.", o_zone.name);
-                return None;
+                o_uses_tsig |= !adapter.dns.tsig.is_empty();
             }
+        }
 
-            // Remember the mapping of zone name to output addns path.
-            o_addns_path_by_o_zone_name.insert(o_zone.name.clone(), o_addns_path.clone());
-
-            // This zone uses a DNS output adapter. Generate a hashed policy
-            // name for Cascade.
-            let o_pol_name = o_zone.policy.clone();
-            let mut hasher = std::hash::DefaultHasher::new();
-            o_addns_path.hash(&mut hasher);
-            let hash = hasher.finish().to_string();
-            let c_pol_name = sanitize_filename::sanitize(format!("{o_pol_name}-{hash}"));
-
-            // Remember the Cascade policy name for this combination of ODS
-            // policy name name and addns path.
-            let key = (o_pol_name, Some(o_addns_path));
-
-            c_pol_name_by_o_pol_name_plus_addns_path.insert(key, c_pol_name) //.clone())
-        })
-        .or_else(|| {
-            // This zone was NOT configured in ODS with zone transfer settings
-            // and so it must be written by ODS to disk when signed.
-            // Remember the Cascade policy name for this ODS policy name.
-            o_writes_signed_zones_to_disk = true;
-            let o_pol_name = o_zone.policy.clone();
-            let o_pol_name = sanitize_filename::sanitize(o_pol_name);
-            let key = (o_pol_name.clone(), None);
-            c_pol_name_by_o_pol_name_plus_addns_path.insert(key, o_pol_name)
-        });
+        if o_uses_tsig {
+            return Err(MigrateError::NotYetSupportedByCascade("TSIG".into()).into());
         }
 
         if c_pol_name_by_o_pol_name_plus_addns_path.is_empty() {
@@ -883,6 +907,7 @@ impl Migrator {
             o_uses_nsec3_re_salting,
             o_uses_non_sha1_nsec3_hash_alg,
             o_uses_non_bcp_nsec3_params,
+            o_restricts_outbound_xfr,
             &k2p_dir,
             &k2p_conf_paths,
             &db_conn,
@@ -920,6 +945,7 @@ impl Migrator {
         o_uses_nsec3_re_salting: bool,
         o_uses_non_sha1_nsec3_hash_alg: bool,
         o_uses_non_bcp_nsec3_params: bool,
+        o_restricts_outbound_xfr: bool,
         k2p_dir: &str,
         k2p_conf_paths: &[String],
         #[allow(unused_variables)] db_conn: &DbConn,
@@ -965,6 +991,12 @@ impl Migrator {
             writeln!(
                 &mut changes,
                 "> - Cascade implements incremental signing differently than OpenDNSSEC and as such neither needs nor supports the OpenDNSSEC jitter functionality. Jitter settings will be ignored."
+            )?;
+        }
+        if o_restricts_outbound_xfr {
+            writeln!(
+                &mut changes,
+                "> - Cascade doesn't support restricting outbound XFR."
             )?;
         }
 
@@ -1321,14 +1353,20 @@ fn create_cascade_policy(
     {
         let zsk_algorithm = alg_to_key_parameters(Key::Zsk(key));
         if zsk_algorithm != *algorithm {
-            bail!("Unsupported: ZSK algorithm ({zsk_algorithm}) != KSK algorithm ({algorithm})",)
+            return Err(MigrateError::NotYetSupportedByCascade(format!(
+                "ZSK algorithm ({zsk_algorithm}) != KSK algorithm ({algorithm})"
+            ))
+            .into());
         }
     }
 
     let csk = kasp.keys.csks.first();
     if let Some(key) = csk {
         if algorithm.is_some() {
-            bail!("Unsupported: Cannot use both CSK and KSK/ZSK");
+            return Err(MigrateError::NotYetSupportedByCascade(
+                "Cannot use CSK at the same time as KSK/ZSK".into(),
+            )
+            .into());
         }
         algorithm = Some(alg_to_key_parameters(Key::Csk(key)));
     }
