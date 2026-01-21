@@ -1135,7 +1135,6 @@ impl Migrator {
               - OpenDNSSEC config file: `{o_conf_xml_path}`
               - Cascade config file   : `{c_conf_toml_path}`
               - Output directory      : `{output_dir_path}`
-              - Force mode enabled    : {force}
 
             It suggests a set of steps and commands that can be used to migrate signing and publishing of DNS zones from OpenDNSSEC to Cascade, using data already gathered from OpenDNSSEC, adjusted for how Cascade works, and written to the specified output directory.
             
