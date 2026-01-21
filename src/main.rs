@@ -395,6 +395,10 @@ impl Migrator {
         // Does ODS use TSIG keys to restrict inbound or outbound access?
         let mut o_uses_tsig = false;
 
+        // Does ODS use safety margins?
+        let mut o_uses_retire_safety = false;
+        let mut o_uses_publish_safety = false;
+
         // So for each combination of ODS policy and zone output adapter we need
         // a different Cascade policy.
         //
@@ -640,8 +644,9 @@ impl Migrator {
             let c_pol = create_cascade_policy(kasp, o_adapter, hsm_server_id.clone())?;
             let out_path = format!("{output_dir_path}/policies/{c_pol_name}.toml");
 
-            let ods_jitter = parse_ods_ts(&kasp.signatures.jitter);
-            o_uses_jitter |= ods_jitter > 0;
+            o_uses_jitter |= parse_ods_ts(&kasp.signatures.jitter) > 0;
+            o_uses_retire_safety |= parse_ods_ts(&kasp.keys.retire_safety) > 0;
+            o_uses_publish_safety |= parse_ods_ts(&kasp.keys.publish_safety) > 0;
 
             if kasp.signatures.validity.denial != kasp.signatures.validity.default {
                 o_uses_non_default_denial_validity = true;
@@ -908,6 +913,8 @@ impl Migrator {
             o_uses_non_sha1_nsec3_hash_alg,
             o_uses_non_bcp_nsec3_params,
             o_restricts_outbound_xfr,
+            o_uses_retire_safety,
+            o_uses_publish_safety,
             &k2p_dir,
             &k2p_conf_paths,
             &db_conn,
@@ -946,6 +953,8 @@ impl Migrator {
         o_uses_non_sha1_nsec3_hash_alg: bool,
         o_uses_non_bcp_nsec3_params: bool,
         o_restricts_outbound_xfr: bool,
+        o_uses_retire_safety: bool,
+        o_uses_publish_safety: bool,
         k2p_dir: &str,
         k2p_conf_paths: &[String],
         #[allow(unused_variables)] db_conn: &DbConn,
@@ -991,6 +1000,24 @@ impl Migrator {
             writeln!(
                 &mut changes,
                 "> - Cascade implements incremental signing differently than OpenDNSSEC and as such neither needs nor supports the OpenDNSSEC jitter functionality. Jitter settings will be ignored."
+            )?;
+        }
+        if o_restricts_outbound_xfr {
+            writeln!(
+                &mut changes,
+                "> - Cascade doesn't support restricting outbound XFR."
+            )?;
+        }
+        if o_uses_retire_safety {
+            writeln!(
+                &mut changes,
+                "> - Cascade handles key state changes differently than OpenDNSSEC and as such specified non-zero <RetireSafety> periods will be ignored."
+            )?;
+        }
+        if o_uses_publish_safety {
+            writeln!(
+                &mut changes,
+                "> - Cascade handles key state changes differently than OpenDNSSEC and as such specified non-zero <PublishSafety> periods will be ignored."
             )?;
         }
         if o_restricts_outbound_xfr {

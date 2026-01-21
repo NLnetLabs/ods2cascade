@@ -25,6 +25,8 @@ Note that there may still be tasks remaining after migration that are specific t
 > [!WARNING]
 > One or more of your OpenDNSSEC configuration settings is unsupported by or handled differently by Cascade:
 > - Signed zones will NOT be written to disk. Cascade only supports publication of signed zones via XFR. You will need a secondary nameserver or some other tool receive/fetch new signed zone versions via XFR.
+> - Cascade handles key state changes differently than OpenDNSSEC and as such specified non-zero <RetireSafety> periods will be ignored.
+> - Cascade handles key state changes differently than OpenDNSSEC and as such specified non-zero <PublishSafety> periods will be ignored.
 
 ## Migration steps
 
