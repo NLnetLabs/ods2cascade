@@ -185,23 +185,49 @@ impl Migrator {
         println!("Loading {o_conf_xml_path}...");
         let xml = io.read_to_string(o_conf_xml_path)?;
         let o_conf: Configuration = process_xml(&xml)?;
+        let mut errors = Vec::<String>::new();
 
-        // Check for HSM repositories without a PIN, which Cascade doesn't yet
-        // support.
-        if let Some(o_repo) = o_conf
-            .repository_list
-            .repositories
-            .iter()
-            .find(|r| r.pin.is_none())
-        {
-            if force {
-                eprintln!("WARNING: Force mode enabled: Ignoring lack of HSM <PIN/>.");
-            } else {
-                return Err(MigrateError::NotYetSupportedByCascade(vec![format!(
-                    "HSM repositories without a <PIN/> (see repository '{}')",
+        if o_conf.enforcer.manual_key_generation.is_some() {
+            errors.push("<ManualKeyGeneration/>".into());
+        }
+        if parse_ods_ts(&o_conf.enforcer.automatic_key_generation_period) > 0 {
+            errors.push("<AutomaticKeyGenerationPeriod/>".into());
+        }
+        if o_conf.enforcer.delegation_signer_submit_command.is_some() {
+            errors.push("<DelegationSignerSubmitCommand/>".into());
+        }
+        if o_conf.enforcer.delegation_signer_retract_command.is_some() {
+            errors.push("<DelegationSignerRetractCommand/>".into());
+        }
+        if o_conf.signer.as_ref().and_then(|s| s.notify_command.as_ref()).is_some() {
+            errors.push("<NotifyCommand/>".into());
+        }
+
+        // Check for HSM configuration issues.
+        for o_repo in &o_conf.repository_list.repositories {
+            if o_repo.pin.is_none() {
+                errors.push(format!(
+                    "Missing <PIN/> in ODS HSM repository '{}'",
                     o_repo.name
-                )])
-                .into());
+                ));
+            }
+            if o_repo.capacity.is_some() {
+                errors.push(format!(
+                    "<Capacity/> in ODS HSM repository '{}'",
+                    o_repo.name
+                ));
+            }
+            if o_repo.skip_public_key.is_some() {
+                errors.push(format!(
+                    "<SkipPublicKey/> in ODS HSM repository '{}'",
+                    o_repo.name
+                ));
+            }
+            if o_repo.allow_extraction.is_some() {
+                errors.push(format!(
+                    "<AllowExtraction/> in ODS HSM repository '{}'",
+                    o_repo.name
+                ));
             }
         }
 
@@ -214,7 +240,6 @@ impl Migrator {
         }
 
         // Check for unsupported policy settings.
-        let mut errors = Vec::<String>::new();
         for o_kasp in &o_kasps.policies {
             let o_kasp_name = &o_kasp.name;
             if o_kasp.passthrough.is_some() {
@@ -431,6 +456,15 @@ impl Migrator {
         // Does ODS use safety margins?
         let mut o_uses_retire_safety = false;
         let mut o_uses_publish_safety = false;
+
+        // Does ODS use a syslog facility?
+        let mut o_uses_syslog_facility = false;
+
+        // Does ODS warn about rollovers ahead of time?
+        let mut o_uses_rollover_notifications = false;
+
+        // Does ODS control the number of threads used?
+        let mut o_uses_thread_count = false;
 
         // So for each combination of ODS policy and zone output adapter we need
         // a different Cascade policy.

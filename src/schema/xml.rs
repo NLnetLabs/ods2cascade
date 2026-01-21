@@ -30,21 +30,14 @@ pub mod conf {
         pub token_label: String,
         #[serde(default, rename = "PIN")]
         pub pin: Option<String>,
-        #[serde(default = "Repository::default_capacity")]
-        pub capacity: usize,
+        #[serde(default)]
+        pub capacity: Option<usize>,
         #[serde(default)]
         pub require_backup: Option<()>,
         #[serde(default)]
         pub skip_public_key: Option<()>,
         #[serde(default)]
         pub allow_extraction: Option<()>,
-    }
-
-    impl Repository {
-        fn default_capacity() -> usize {
-            // INFINITE according to OpenDNSSEC conf.rnc
-            usize::MAX
-        }
     }
 
     #[derive(Debug, Deserialize)]
@@ -107,6 +100,8 @@ pub mod conf {
         pub rollover_notification: Option<String>,
         #[serde(default)]
         pub delegation_signer_submit_command: Option<String>,
+        #[serde(default)]
+        pub delegation_signer_retract_command: Option<String>,
         #[serde(default)]
         pub pid_file: Option<String>,
         #[serde(default)]
