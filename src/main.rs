@@ -1391,6 +1391,25 @@ fn create_cascade_policy(
         },
     };
 
+    let auto_ksk = ksk
+        .map(|k| manual_or_automatic(k.manual_rollover))
+        .unwrap_or_default();
+    let auto_zsk = zsk
+        .map(|k| manual_or_automatic(k.manual_rollover))
+        .unwrap_or_default();
+    let auto_csk = csk
+        .map(|k| manual_or_automatic(k.manual_rollover))
+        .unwrap_or_default();
+
+    // We'll enable Cascades' automatic algorithm rollover support as
+    // OpenDNSSEC 2.x apparently has support for algorithm rollover.
+    // See: https://www.mail-archive.com/opendnssec-announce@lists.opendnssec.org/msg00012.html
+    let auto_algorithm = AutoConfig::default();
+
+    // Cascade doesn't yet support restricting XFR from secondaries.
+    // Allow XFR from any secondary.
+    let accept_xfr_requests_from = vec![];
+
     let policy = cascaded::policy::PolicyVersion {
         name: kasp.name.clone().into_boxed_str(),
         loader: cascaded::policy::LoaderPolicy {
@@ -1406,25 +1425,31 @@ fn create_cascade_policy(
             ksk_validity: ksk.map(|k| parse_ods_ts(&k.lifetime)),
             zsk_validity: zsk.map(|k| parse_ods_ts(&k.lifetime)),
             csk_validity: csk.map(|k| parse_ods_ts(&k.lifetime)),
-            auto_ksk: ksk
-                .map(|k| manual_or_automatic(k.manual_rollover))
-                .unwrap_or_default(),
-            auto_zsk: zsk
-                .map(|k| manual_or_automatic(k.manual_rollover))
-                .unwrap_or_default(),
-            auto_csk: csk
-                .map(|k| manual_or_automatic(k.manual_rollover))
-                .unwrap_or_default(),
-            auto_algorithm: AutoConfig::default(), // TODO: What does ODS do for this?
+            auto_ksk,
+            auto_zsk,
+            auto_csk,
+            auto_algorithm,
             dnskey_inception_offset: parse_ods_ts(&kasp.signatures.inception_offset),
-            dnskey_signature_lifetime: parse_ods_ts(&kasp.signatures.validity.default),
+            dnskey_signature_lifetime: parse_ods_ts(
+                kasp.signatures
+                    .validity
+                    .keyset
+                    .as_ref()
+                    .unwrap_or(&kasp.signatures.validity.default),
+            ),
             dnskey_remain_time: parse_ods_ts(&kasp.signatures.refresh),
             cds_inception_offset: parse_ods_ts(&kasp.signatures.inception_offset),
-            cds_signature_lifetime: parse_ods_ts(&kasp.signatures.validity.default),
+            cds_signature_lifetime: parse_ods_ts(
+                kasp.signatures
+                    .validity
+                    .keyset
+                    .as_ref()
+                    .unwrap_or(&kasp.signatures.validity.default),
+            ),
             cds_remain_time: parse_ods_ts(&kasp.signatures.refresh),
-            ds_algorithm: DsAlgorithm::Sha256, // TODO: ODS doesn't have this
             default_ttl: Ttl::from_secs(parse_ods_ts(&kasp.keys.ttl)),
-            auto_remove: kasp.keys.purge.is_some(), // NOTE: ODS uses a delay, Cascade does not
+            auto_remove: kasp.keys.purge.is_some(),
+            ds_algorithm: DsAlgorithm::default(),
         },
         signer: SignerPolicy {
             serial_policy: match kasp.zone.soa.serial.serial {
@@ -1433,9 +1458,9 @@ fn create_cascade_policy(
                 SerialEnum::unixtime => SignerSerialPolicy::UnixTime,
                 SerialEnum::keep => SignerSerialPolicy::Keep,
             },
-            sig_inception_offset: 0, // TODO
-            sig_validity_time: 0,    // TODO
-            sig_remain_time: 0,      // TODO
+            sig_inception_offset: parse_ods_ts(&kasp.signatures.inception_offset),
+            sig_validity_time: parse_ods_ts(&kasp.signatures.validity.default),
+            sig_remain_time: parse_ods_ts(&kasp.signatures.refresh),
             denial,
             review: ReviewPolicy {
                 required: false,
@@ -1444,7 +1469,7 @@ fn create_cascade_policy(
         },
         server: ServerPolicy {
             outbound: OutboundPolicy {
-                accept_xfr_requests_from: vec![], // TODO
+                accept_xfr_requests_from,
                 send_notify_to,
             },
         },
@@ -1468,12 +1493,7 @@ fn manual_or_automatic(manual_rollover: Option<()>) -> AutoConfig {
             done: false,
         }
     } else {
-        AutoConfig {
-            start: true,
-            report: true,
-            expire: true,
-            done: true,
-        }
+        AutoConfig::default()
     }
 }
 
