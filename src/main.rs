@@ -1626,7 +1626,11 @@ mod test {
             panic!("Expected an IO error");
         };
         assert_eq!(io_err.kind(), std::io::ErrorKind::Other);
-        assert!(io_err.to_string().contains("missing field named `databaseVersion`"));
+        assert!(
+            io_err
+                .to_string()
+                .contains("missing field named `databaseVersion`")
+        );
         Ok(())
     }
 
