@@ -1495,7 +1495,7 @@ impl DbConn {
         // extract the common code into a helper function or even a proc
         // macro.
         #[cfg(not(test))]
-        const Q: &str = "SELECT * FROM databaseversion";
+        const Q: &str = "SELECT * FROM databaseVersion";
         match self {
             #[cfg(not(test))]
             DbConn::MySQL(c) => sqlx::query_as(Q).fetch_one(c).await,
