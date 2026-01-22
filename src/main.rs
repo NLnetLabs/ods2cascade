@@ -1025,7 +1025,7 @@ impl Migrator {
         if matches!(db_conn, DbConn::MySQL(_)) {
             p.next_step()?;
             p.println("(optional) Retire the OpenDNSSEC MySQL database instance.")?;
-            p.println("IF the MySQL database was only used by OpenDNSSEC you may no longer need it after switching to Cascade and could consider backing it up an retiring it.")?;
+            p.println("If the MySQL database was only used by OpenDNSSEC you may no longer need it after switching to Cascade and could consider backing it up an retiring it.")?;
         }
 
         p.last_step()?;
