@@ -1,0 +1,9 @@
+// Syntax: <table_name>: [<rust_row_type>, <rust_row_type>, ...]
+(
+	// OpenDNSSEC 1.4.x didn't have a databaseVersion table, instead it had a dbadmin table.
+	// databaseVersion: DatabaseVersion(
+	// 	id: 1,
+	// 	rev: 1,
+	// 	version: 1
+	// ),
+)
