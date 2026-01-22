@@ -199,7 +199,12 @@ impl Migrator {
         if o_conf.enforcer.delegation_signer_retract_command.is_some() {
             errors.push("<DelegationSignerRetractCommand/>".into());
         }
-        if o_conf.signer.as_ref().and_then(|s| s.notify_command.as_ref()).is_some() {
+        if o_conf
+            .signer
+            .as_ref()
+            .and_then(|s| s.notify_command.as_ref())
+            .is_some()
+        {
             errors.push("<NotifyCommand/>".into());
         }
 
