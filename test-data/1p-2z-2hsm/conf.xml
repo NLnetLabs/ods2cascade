@@ -17,6 +17,7 @@
     <ZoneListFile>zonelist.xml</ZoneListFile>
   </Common>
   <Enforcer>
+		<AutomaticKeyGenerationPeriod>P0D</AutomaticKeyGenerationPeriod>
     <Datastore>
       <Test>db.ron</Test>
     </Datastore>

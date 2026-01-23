@@ -12,11 +12,11 @@ use std::{
 };
 
 use anyhow::{anyhow, bail};
-use cascaded::config::file::Spec;
 use cascaded::policy::{
     AutoConfig, DsAlgorithm, NameserverCommsPolicy, OutboundPolicy, Policy, ReviewPolicy,
     ServerPolicy, SignerDenialPolicy, SignerPolicy, SignerSerialPolicy,
 };
+use cascaded::{config::file::Spec, policy::KeyParameters};
 use domain::base::Ttl;
 use kmip2pkcs11_cfg::daemonbase::process::{GroupId, UserId};
 use quick_xml::DeError;
@@ -264,13 +264,7 @@ impl Migrator {
                 ));
             }
 
-            let mut key_alg = None;
             for ksk in &o_kasp.keys.ksks {
-                if key_alg.is_none() {
-                    key_alg = Some(ksk.algorithm.clone());
-                } else if key_alg.as_ref() != Some(&ksk.algorithm) {
-                    errors.push("Mixed key algorithms in ODS KASP policy '{o_kasp_name}'".into());
-                }
                 if ksk.standby.is_some() {
                     errors.push(format!(
                         "<Standby/> for KSK in ODS KASP policy '{o_kasp_name}'"
@@ -292,13 +286,6 @@ impl Migrator {
             }
 
             for zsk in &o_kasp.keys.zsks {
-                if key_alg.is_none() {
-                    key_alg = Some(zsk.algorithm.clone());
-                } else if key_alg.as_ref() != Some(&zsk.algorithm) {
-                    errors.push(format!(
-                        "Mixed key algorithms for ZSK in ODS KASP policy '{o_kasp_name}'"
-                    ));
-                }
                 if zsk.standby.is_some() {
                     errors.push(format!(
                         "<Standby/> for ZSK in ODS KASP policy '{o_kasp_name}'"
@@ -315,13 +302,6 @@ impl Migrator {
             }
 
             for csk in &o_kasp.keys.csks {
-                if key_alg.is_none() {
-                    key_alg = Some(csk.algorithm.clone());
-                } else if key_alg.as_ref() != Some(&csk.algorithm) {
-                    errors.push(format!(
-                        "Mixed key algorithms in ODS KASP policy '{o_kasp_name}'"
-                    ));
-                }
                 if csk.standby.is_some() {
                     errors.push(format!(
                         "<Standby/> for CSK in ODS KASP policy '{o_kasp_name}'"
@@ -470,6 +450,16 @@ impl Migrator {
 
         // Does ODS control the number of threads used?
         let mut o_uses_thread_count = false;
+
+        // Does at least one ODS policy define keys of the same algorithm
+        // but different length, and did we thus choose to use the strongest
+        // (longest) key length for generation of future keys?
+        let mut o_key_len_upgraded = false;
+
+        // Does at least one ODS policy define multiple keys of the same
+        // type (KSK, ZSK, CSK) and thus did we ignore keys (as Cascade only
+        // supports a single KSK/ZSK pair or a single CSK key per policy)?
+        let mut o_extra_keys_ignored = false;
 
         // So for each combination of ODS policy and zone output adapter we need
         // a different Cascade policy.
@@ -757,7 +747,10 @@ impl Migrator {
                     .get(addns_path)
                     .and_then(|a| a.dns.outbound.as_ref())
             });
-            let c_pol = create_cascade_policy(kasp, o_adapter, hsm_server_id.clone())?;
+            let res = create_cascade_policy(kasp, o_adapter, hsm_server_id.clone())?;
+            let c_pol = res.0;
+            o_key_len_upgraded |= res.1;
+            o_extra_keys_ignored |= res.2;
             let out_path = format!("{output_dir_path}/policies/{c_pol_name}.toml");
 
             o_uses_jitter |= parse_ods_ts(&kasp.signatures.jitter) > 0;
@@ -1031,6 +1024,8 @@ impl Migrator {
             o_restricts_outbound_xfr,
             o_uses_retire_safety,
             o_uses_publish_safety,
+            o_key_len_upgraded,
+            o_extra_keys_ignored,
             &k2p_dir,
             &k2p_conf_paths,
             force,
@@ -1072,6 +1067,8 @@ impl Migrator {
         o_restricts_outbound_xfr: bool,
         o_uses_retire_safety: bool,
         o_uses_publish_safety: bool,
+        o_key_len_upgraded: bool,
+        o_extra_keys_ignored: bool,
         k2p_dir: &str,
         k2p_conf_paths: &[String],
         force: bool,
@@ -1142,6 +1139,18 @@ impl Migrator {
             writeln!(
                 &mut changes,
                 "> - Cascade doesn't support restricting outbound XFR."
+            )?;
+        }
+        if o_key_len_upgraded {
+            writeln!(
+                &mut changes,
+                "> - Cascade doesn't support KSK and ZSK with differing lengths in the same policy. Future keys for such policies will be generated with the longest length for the policy."
+            )?;
+        }
+        if o_extra_keys_ignored {
+            writeln!(
+                &mut changes,
+                "> - Cascade doesn't support multiple ZSKs, KSKs or CSKs per policy. Only the first key of each type will be used."
             )?;
         }
 
@@ -1487,44 +1496,85 @@ fn process_xml<'de, T: Deserialize<'de>>(xml: &'de str) -> Result<T, DeError> {
     quick_xml::de::from_str(xml)
 }
 
+#[rustfmt::skip]
+pub fn eq_excluding_length(lhs: &KeyParameters, rhs: &KeyParameters) -> bool {
+    matches!(
+        (lhs, rhs),
+        (KeyParameters::RsaSha256(_),    KeyParameters::RsaSha256(_))    |
+        (KeyParameters::RsaSha512(_),    KeyParameters::RsaSha512(_))    |
+        (KeyParameters::EcdsaP256Sha256, KeyParameters::EcdsaP256Sha256) |
+        (KeyParameters::EcdsaP384Sha384, KeyParameters::EcdsaP384Sha384) |
+        (KeyParameters::Ed25519,         KeyParameters::Ed25519)         |
+        (KeyParameters::Ed448,           KeyParameters::Ed448)
+    )
+}
+
+pub fn key_length(key: &KeyParameters) -> Option<usize> {
+    match key {
+        KeyParameters::RsaSha256(len) | KeyParameters::RsaSha512(len) => Some(*len),
+        KeyParameters::EcdsaP256Sha256
+        | KeyParameters::EcdsaP384Sha384
+        | KeyParameters::Ed25519
+        | KeyParameters::Ed448 => None,
+    }
+}
+
+// First return bool: true if keys of different length but same algorithm were
+// found and thus the longest (strongest) was chosen.
+// Second return bool: true if more than one key of the same type (KSK, ZSK,
+// CSK) was found.
 fn create_cascade_policy(
     kasp: &crate::schema::xml::kasp::Policy,
     output: Option<&Outbound>,
     hsm_server_id: Option<String>,
-) -> anyhow::Result<cascaded::policy::file::Spec> {
+) -> anyhow::Result<(cascaded::policy::file::Spec, bool, bool)> {
     // NOTE: OpenDNSSEC supports multiple keys per key type (KSK, ZSK, CSK)
     // per policy each having their own algorithm settings. Cascade only
     // supports one key specification per policy. Use the first key found.
     let use_csk = !kasp.keys.csks.is_empty();
-    let mut algorithm = None;
+    let mut policy_algorithm = None;
+    let mut key_length_upgraded = false;
+    let extra_keys_ignored =
+        kasp.keys.ksks.len() > 1 || kasp.keys.zsks.len() > 1 || kasp.keys.csks.len() > 1;
 
     let ksk = kasp.keys.ksks.first();
     if let Some(key) = ksk {
-        algorithm = Some(alg_to_key_parameters(Key::Ksk(key)));
+        policy_algorithm = Some(alg_to_key_parameters(Key::Ksk(key)));
     }
 
     let zsk = kasp.keys.zsks.first();
     if let Some(key) = zsk
-        && let Some(algorithm) = &algorithm
+        && let Some(seen_algorithm) = &policy_algorithm
     {
+        // Reject different algorithm as Cascade only supports a single key
+        // algorithm per policy.
         let zsk_algorithm = alg_to_key_parameters(Key::Zsk(key));
-        if zsk_algorithm != *algorithm {
+        if !eq_excluding_length(&zsk_algorithm, seen_algorithm) {
             return Err(MigrateError::NotYetSupportedByCascade(vec![format!(
-                "ZSK algorithm ({zsk_algorithm}) != KSK algorithm ({algorithm})"
+                "ZSK algorithm ({zsk_algorithm}) != KSK algorithm ({seen_algorithm})"
             )])
             .into());
+        } else {
+            // Accept same algorithm, and if different key length prefer the
+            // longest (strongest) length.
+            let this_key_length = key_length(&zsk_algorithm);
+            let seen_key_length = key_length(seen_algorithm);
+            key_length_upgraded |= this_key_length != seen_key_length;
+            if this_key_length > seen_key_length {
+                policy_algorithm = Some(zsk_algorithm);
+            }
         }
     }
 
     let csk = kasp.keys.csks.first();
     if let Some(key) = csk {
-        if algorithm.is_some() {
+        if policy_algorithm.is_some() {
             return Err(MigrateError::NotYetSupportedByCascade(vec![
                 "Cannot use CSK at the same time as KSK/ZSK".into(),
             ])
             .into());
         }
-        algorithm = Some(alg_to_key_parameters(Key::Csk(key)));
+        policy_algorithm = Some(alg_to_key_parameters(Key::Csk(key)));
     }
 
     let mut send_notify_to = vec![];
@@ -1577,7 +1627,7 @@ fn create_cascade_policy(
         key_manager: cascaded::policy::KeyManagerPolicy {
             hsm_server_id,
             use_csk,
-            algorithm: algorithm.unwrap(),
+            algorithm: policy_algorithm.unwrap(),
             ksk_validity: ksk.map(|k| parse_ods_ts(&k.lifetime)),
             zsk_validity: zsk.map(|k| parse_ods_ts(&k.lifetime)),
             csk_validity: csk.map(|k| parse_ods_ts(&k.lifetime)),
@@ -1637,7 +1687,11 @@ fn create_cascade_policy(
         zones: Default::default(),
     };
 
-    Ok(cascaded::policy::file::Spec::build(&policy))
+    Ok((
+        cascaded::policy::file::Spec::build(&policy),
+        key_length_upgraded,
+        extra_keys_ignored,
+    ))
 }
 
 fn manual_or_automatic(manual_rollover: Option<()>) -> AutoConfig {
@@ -1978,7 +2032,7 @@ mod test {
         assert_eq!(
             v,
             MigrateError::NotYetSupportedByCascade(vec![
-                "HSM repositories without a <PIN/> (see repository 'somehsm')".into()
+                "Missing <PIN/> in ODS HSM repository 'somehsm'".into()
             ])
         );
         Ok(())
@@ -2012,6 +2066,7 @@ mod test {
     async fn require_consistent_zones_xml() -> anyhow::Result<()> {
         let res = run_test("1p-1z-inconsistent-zones-xml").await;
         let v = to_inner_err::<_, MigrateError>(res);
+        dbg!(&v);
         assert!(matches!(v, MigrateError::InconsistentState(_)));
         Ok(())
     }
@@ -2027,6 +2082,38 @@ mod test {
     #[tokio::test]
     async fn force_nsec3_to_bcp_settings() -> anyhow::Result<()> {
         run_test("1p-1z-non-bcp-nsec3").await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn use_longest_ksk() -> anyhow::Result<()> {
+        run_test("1p-1z-use-longest-ksk").await?;
+        run_test("1p-1z-use-longest-ksk2").await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn use_longest_zsk() -> anyhow::Result<()> {
+        run_test("1p-1z-use-longest-zsk").await?;
+        run_test("1p-1z-use-longest-zsk2").await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn ignore_extra_ksks() -> anyhow::Result<()> {
+        run_test("1p-1z-ignore-extra-ksks").await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn ignore_extra_zsks() -> anyhow::Result<()> {
+        run_test("1p-1z-ignore-extra-zsks").await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn ignore_extra_csks() -> anyhow::Result<()> {
+        run_test("1p-1z-ignore-extra-csks").await?;
         Ok(())
     }
 

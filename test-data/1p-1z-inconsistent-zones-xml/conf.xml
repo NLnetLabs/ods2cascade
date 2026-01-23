@@ -14,6 +14,7 @@
 	</Common>
 
 	<Enforcer>
+		<AutomaticKeyGenerationPeriod>P0D</AutomaticKeyGenerationPeriod>
 		<Datastore><Test>db.ron</Test></Datastore>
 		<!-- Set an empty working directory to override the default /var/opendnssec/tmp -->
 		<WorkingDirectory/>

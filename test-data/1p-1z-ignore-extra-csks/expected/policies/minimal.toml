@@ -1,0 +1,69 @@
+version = "v1"
+
+[loader.review]
+required = false
+
+[key-manager]
+ds-algorithm = "SHA-256"
+auto-remove = false
+
+[key-manager.ksk]
+validity = "forever"
+auto-start = true
+auto-report = true
+auto-expire = true
+auto-done = true
+
+[key-manager.zsk]
+validity = "forever"
+auto-start = true
+auto-report = true
+auto-expire = true
+auto-done = true
+
+[key-manager.csk]
+validity = 31536000
+auto-start = true
+auto-report = true
+auto-expire = true
+auto-done = true
+
+[key-manager.algorithm]
+auto-start = true
+auto-report = true
+auto-expire = true
+auto-done = true
+
+[key-manager.records]
+ttl = 3600
+
+[key-manager.records.dnskey]
+signature-inception-offset = 3600
+signature-lifetime = 1209600
+signature-remain-time = 259200
+
+[key-manager.records.cds]
+signature-inception-offset = 3600
+signature-lifetime = 1209600
+signature-remain-time = 259200
+
+[key-manager.generation]
+hsm-server-id = "somehsm"
+use-csk = true
+algorithm = "RSASHA256"
+
+[signer]
+serial-policy = "unix-time"
+signature-inception-offset = 3600
+signature-lifetime = 1209600
+signature-remain-time = 259200
+
+[signer.denial]
+type = "nsec"
+
+[signer.review]
+required = false
+
+[server.outbound]
+accept-xfr-requests-from = []
+send-notify-to = []
