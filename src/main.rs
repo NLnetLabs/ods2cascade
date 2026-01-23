@@ -443,13 +443,23 @@ impl Migrator {
         let mut o_uses_publish_safety = false;
 
         // Does ODS use a syslog facility?
-        let mut o_uses_syslog_facility = false;
+        let o_uses_syslog_facility = if let Some(logging) = &o_conf.common.logging {
+            logging.syslog.is_some()
+        } else {
+            false
+        };
 
         // Does ODS warn about rollovers ahead of time?
-        let mut o_uses_rollover_notifications = false;
+        let o_uses_rollover_notifications = o_conf.enforcer.rollover_notification.is_some();
 
         // Does ODS control the number of threads used?
-        let mut o_uses_thread_count = false;
+        let o_uses_thread_count = if let Some(signer) = &o_conf.signer
+            && (signer.worker_threads.is_some() || signer.signer_threads.is_some())
+        {
+            true
+        } else {
+            false
+        };
 
         // Does at least one ODS policy define keys of the same algorithm
         // but different length, and did we thus choose to use the strongest
@@ -1026,6 +1036,9 @@ impl Migrator {
             o_uses_publish_safety,
             o_key_len_upgraded,
             o_extra_keys_ignored,
+            o_uses_syslog_facility,
+            o_uses_rollover_notifications,
+            o_uses_thread_count,
             &k2p_dir,
             &k2p_conf_paths,
             force,
@@ -1069,6 +1082,9 @@ impl Migrator {
         o_uses_publish_safety: bool,
         o_key_len_upgraded: bool,
         o_extra_keys_ignored: bool,
+        o_uses_syslog_facility: bool,
+        o_uses_rollover_notifications: bool,
+        o_uses_thread_count: bool,
         k2p_dir: &str,
         k2p_conf_paths: &[String],
         force: bool,
@@ -1151,6 +1167,24 @@ impl Migrator {
             writeln!(
                 &mut changes,
                 "> - Cascade doesn't support multiple ZSKs, KSKs or CSKs per policy. Only the first key of each type will be used."
+            )?;
+        }
+        if o_uses_syslog_facility {
+            writeln!(
+                &mut changes,
+                "> - Cascade doesn't support setting the facility when using syslog logging. Syslog messages will be logged with the 'user' facility."
+            )?;
+        }
+        if o_uses_rollover_notifications {
+            writeln!(
+                &mut changes,
+                "> - Cascade doesn't support rollover notifications."
+            )?;
+        }
+        if o_uses_thread_count {
+            writeln!(
+                &mut changes,
+                "> - Cascade doesn't support setting signer thread pool size."
             )?;
         }
 

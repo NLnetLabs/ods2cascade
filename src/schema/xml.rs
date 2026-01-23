@@ -142,10 +142,10 @@ pub mod conf {
         pub privileges: Option<Privileges>,
         #[serde(default = "Signer::default_working_directory")]
         pub working_directory: String,
-        #[serde(default = "Signer::default_worker_threads")]
-        pub worker_threads: usize,
-        #[serde(default = "Signer::default_signer_threads")]
-        pub signer_threads: usize,
+        #[serde(default)]
+        pub worker_threads: Option<usize>,
+        #[serde(default)]
+        pub signer_threads: Option<usize>,
         #[serde(default)]
         pub listener: Listener,
         #[serde(default)]
@@ -156,16 +156,6 @@ pub mod conf {
         fn default_working_directory() -> String {
             // From OpenDNSSEC conf.rc
             "$(localstatedir)/opendnssec/tmp".to_string()
-        }
-
-        fn default_worker_threads() -> usize {
-            // From OpenDNSSEC conf.rnc
-            4
-        }
-
-        fn default_signer_threads() -> usize {
-            // From OpenDNSSEC conf.rnc
-            4
         }
     }
 
