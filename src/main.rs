@@ -17,6 +17,7 @@ use cascaded::policy::{
     AutoConfig, DsAlgorithm, NameserverCommsPolicy, OutboundPolicy, Policy, ReviewPolicy,
     ServerPolicy, SignerDenialPolicy, SignerPolicy, SignerSerialPolicy,
 };
+use clap::Parser;
 use domain::base::Ttl;
 use kmip2pkcs11_cfg::daemonbase::process::{GroupId, UserId};
 use quick_xml::DeError;
@@ -40,45 +41,47 @@ use crate::{
     schema::xml::conf::Privileges,
 };
 
+/// OpenDNSSEC to Cascade migration tool.
+///
+/// NOTE: This tool will NOT modify your existing OpenDNSSEC or Cascade installation.
+#[derive(Parser)]
+#[command(version, about, long_about = None)]
+struct Args {
+    /// Cascade policy directory.
+    #[arg(short, long, default_value = "/etc/cascade/policies")]
+    cascade_policy_dir: PathBuf,
+
+    /// Cascade control port.
+    #[arg(short, long, default_value = "127.0.0.1:4539")]
+    cascade_control_server: String,
+
+    /// Cascade user id.
+    #[arg(short, long, default_value = "cascade")]
+    cascade_user: String,
+
+    /// Path to your OpenDNSSEC configuration file.
+    o_conf_xml_path: PathBuf,
+
+    /// Path to write output files to.
+    output_dir_path: PathBuf,
+}
+
 #[tokio::main]
 async fn main() {
-    // Poor mans CLI argument parsing. We don't need Clap (yet).
-    if let Some(true) = std::env::args()
-        .nth(1)
-        .map(|arg| arg == "--version" || arg == "-V")
-    {
-        println!("{} {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
-        std::process::exit(0);
-    }
-
-    let mut args = std::env::args();
-    let prog_name = args.next().unwrap();
-
-    if args.len() != 3 || args.any(|arg| arg == "--help" || arg == "-h") {
-        println!(
-            "Usage: {prog_name} [OPTIONS] <path/to/cascade.toml> <path/to/opendnssec/conf.xml> <path/to/write/files/to>"
-        );
-        println!();
-        println!("Options:");
-        println!("  -h, --help     Print help");
-        println!("  -V, --version  Print version");
-        println!();
-        println!(
-            "NOTE: This tool will NOT modify your existing OpenDNSSEC or Cascade installation."
-        );
-        std::process::exit(1);
-    }
-
-    let mut args = std::env::args();
-    let _prog_name = args.next().unwrap();
-    let c_conf_toml_path = args.next().unwrap();
-    let o_conf_xml_path = args.next().unwrap();
-    let output_dir_path = args.next().unwrap();
+    let Args {
+        cascade_policy_dir,
+        cascade_control_server,
+        cascade_user,
+        o_conf_xml_path,
+        output_dir_path,
+    } = Args::parse();
 
     if let Err(err) = Migrator::migrate(
-        &c_conf_toml_path,
-        &o_conf_xml_path,
-        &output_dir_path,
+        &o_conf_xml_path.to_str().unwrap(),
+        &output_dir_path.to_str().unwrap(),
+        cascade_policy_dir.to_str().unwrap(),
+        &cascade_control_server,
+        &cascade_user,
         &Fs::new(),
     )
     .await
@@ -121,9 +124,11 @@ struct Migrator;
 
 impl Migrator {
     async fn migrate<IO: FsOps>(
-        c_conf_toml_path: &str,
         o_conf_xml_path: &str,
         output_dir_path: &str,
+        c_pol_dir: &str,
+        c_control_server: &str,
+        c_user: &str,
         io: &IO,
     ) -> anyhow::Result<()> {
         println!("Welcome to ods2cascade.");
@@ -137,9 +142,10 @@ impl Migrator {
         );
         println!();
         println!("Provided inputs:");
-        println!("  - OpenDNSSEC config file: {o_conf_xml_path}");
-        println!("  - Cascade config file   : {c_conf_toml_path}");
-        println!("  - Output directory      : {output_dir_path}");
+        println!("  - OpenDNSSEC config file  : {o_conf_xml_path}");
+        println!("  - Cascade policy directory: {c_pol_dir}");
+        println!("  - Cascade control server  : {c_control_server}");
+        println!("  - Output directory        : {output_dir_path}");
         println!();
 
         if io.exists(output_dir_path)? {
@@ -155,21 +161,7 @@ impl Migrator {
         let dbg_dir = format!("{output_dir_path}/debug");
         let k2p_dir = format!("{output_dir_path}/kmip2pkcs11");
 
-        println!("Loading {c_conf_toml_path}...");
-        let toml = io.read_to_string(c_conf_toml_path)?;
-        let c_conf_spec: Spec = toml::from_str(&toml)?;
-        let mut c_conf = cascaded::config::Config::default();
-        c_conf_spec.parse_into(&mut c_conf);
-        let c_pol_dir = c_conf.policy_dir.clone();
-        let c_remote_control_server =
-            c_conf.remote_control.servers.first().ok_or_else(|| {
-                anyhow!("Cascade config file should define a remote-control server.")
-            })?;
-        let c_cli_args = format!(
-            "--server {}:{}",
-            c_remote_control_server.ip(),
-            c_remote_control_server.port()
-        );
+        let c_cli_args = format!("--server {c_control_server}",);
 
         println!("Loading {o_conf_xml_path}...");
         let xml = io.read_to_string(o_conf_xml_path)?;
@@ -359,7 +351,6 @@ impl Migrator {
         io.create_dir(&dbg_dir)?;
         io.create_dir(&k2p_dir)?;
 
-        io.dbg_to_file(&c_conf, "cascade_conf", &dbg_dir)?;
         io.dbg_to_file(&o_conf, "ods_conf", &dbg_dir)?;
         io.dbg_to_file(&o_kasps, "ods_kasp", &dbg_dir)?;
         io.dbg_to_file(&o_zone_list, "ods_zone_list", &dbg_dir)?;
@@ -580,17 +571,6 @@ impl Migrator {
         let cmd_file_path = format!("{output_dir_path}/commands.sh");
         let mut cmd_file = io.create(&cmd_file_path)?;
 
-        let c_user = match c_conf.daemon.identity.as_ref().map(|id| id.0.to_string()) {
-            Some(username) => username,
-            None => {
-                // Use the owner of the Cascade config file as the user to grant
-                // read access to newly installed Cascade policy files.
-                io.owner(c_conf_toml_path)?.ok_or(anyhow!(
-                    "Failed to determine ownership of file '{c_conf_toml_path}': Cause unknown",
-                ))?
-            }
-        };
-
         writeln!(
             cmd_file,
             "# Copy the generated policies to the Cascade policy directory."
@@ -745,8 +725,6 @@ impl Migrator {
         }
 
         let readme_md = Self::generate_readme_markdown(
-            &c_conf,
-            c_conf_toml_path,
             &o_conf,
             o_conf_xml_path,
             output_dir_path,
@@ -778,8 +756,9 @@ impl Migrator {
 
     #[allow(clippy::too_many_arguments)]
     async fn generate_readme_markdown(
-        c_conf: &cascaded::config::Config,
-        c_conf_toml_path: &str,
+        c_pol_dir: &str,
+        c_control_server: &str,
+        c_user: &str,
         o_conf: &Configuration,
         o_conf_xml_path: &str,
         output_dir_path: &str,
@@ -831,7 +810,9 @@ impl Migrator {
             This document was generated by `ods2cascade` with the following inputs:
             
               - OpenDNSSEC config file: `{o_conf_xml_path}`
-              - Cascade config file   : `{c_conf_toml_path}`
+              - Cascade policy dir    : `{c_pol_dir}`
+              - Cascade control server: `{c_control_server}`
+              - Cascade user ID       : `{c_user}`
               - Output directory      : `{output_dir_path}`
             
             It suggests a set of steps and commands that can be used to migrate signing and publishing of DNS zones from OpenDNSSEC to Cascade, using data already gathered from OpenDNSSEC, adjusted for how Cascade works, and written to the specified output directory.
@@ -867,7 +848,7 @@ impl Migrator {
         // Notify the user of any Cascade config changes they need to make.
         // TODO: Use https://github.com/NLnetLabs/ods2cascade/pull/36 when/if ready.
         if let Some(o_signer_interfaces) = o_signer_interfaces {
-            let mut different = c_conf.server.servers.len() == o_signer_interfaces.len();
+            let mut different = false;
 
             // Determine if the user has already correctly configured
             // Cascade to match the listener settings of OpenDNSSEC.
@@ -1572,7 +1553,7 @@ mod test {
         let io = Fs::new();
         io.register_dir("out");
 
-        let res = Migrator::migrate("conf.toml", "conf.xml", "out", &io).await;
+        let res = Migrator::migrate("conf.xml", "out", "/some/policy/dir", 12345, &io).await;
         let v = to_inner_err::<_, std::io::Error>(res);
         assert_eq!(v.kind(), std::io::ErrorKind::AlreadyExists);
     }
