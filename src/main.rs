@@ -12,13 +12,13 @@ use std::{
 };
 
 use anyhow::{anyhow, bail};
+use cascade_hsm_bridge_cfg::daemonbase::process::{GroupId, UserId};
 use cascaded::config::file::Spec;
 use cascaded::policy::{
     AutoConfig, DsAlgorithm, NameserverCommsPolicy, OutboundPolicy, Policy, ReviewPolicy,
     ServerPolicy, SignerDenialPolicy, SignerPolicy, SignerSerialPolicy,
 };
 use domain::base::Ttl;
-use kmip2pkcs11_cfg::daemonbase::process::{GroupId, UserId};
 use quick_xml::DeError;
 use schema::xml::addns::{Adapter, Outbound};
 use schema::xml::conf::Configuration;
@@ -384,9 +384,9 @@ impl Migrator {
             let out_path = format!("{k2p_dir}/{hsm_name}.toml");
             println!("Generating '{out_path}'...");
 
-            let mut daemon = kmip2pkcs11_cfg::v1::DaemonConfig::default();
-            daemon.log.level = kmip2pkcs11_cfg::v1::LogLevel::Warning;
-            daemon.log.target = kmip2pkcs11_cfg::v1::LogTarget::Syslog;
+            let mut daemon = cascade_hsm_bridge_cfg::v1::DaemonConfig::default();
+            daemon.log.level = cascade_hsm_bridge_cfg::v1::LogLevel::Warning;
+            daemon.log.target = cascade_hsm_bridge_cfg::v1::LogTarget::Syslog;
             daemon.daemonize = true;
 
             // TODO: Add chroot support to kmip2pkcs11 and supply privileges.directory.
@@ -404,13 +404,14 @@ impl Migrator {
                 daemon.identity = Some((user_id, group_id));
             }
 
-            let pkcs11 = kmip2pkcs11_cfg::v1::Pkcs11Config { lib_path };
+            let pkcs11 = cascade_hsm_bridge_cfg::v1::Pkcs11Config { lib_path };
 
-            let kmip2pkcs11_conf = kmip2pkcs11_cfg::Config::V1(kmip2pkcs11_cfg::v1::Config {
-                daemon,
-                pkcs11,
-                server: Default::default(),
-            });
+            let kmip2pkcs11_conf =
+                cascade_hsm_bridge_cfg::Config::V1(cascade_hsm_bridge_cfg::v1::Config {
+                    daemon,
+                    pkcs11,
+                    server: Default::default(),
+                });
 
             let toml = toml::to_string_pretty(&kmip2pkcs11_conf)?;
             let mut out_file = io.create(&out_path)?;
