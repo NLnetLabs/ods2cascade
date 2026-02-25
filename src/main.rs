@@ -211,7 +211,7 @@ impl Migrator {
             .signer
             .as_ref()
             .and_then(|s| s.privileges.as_ref())
-            .map(|p| p.directory.as_ref())
+            .and_then(|p| p.directory.as_ref())
             .is_some()
         {
             errors.push("<Signer><Privileges><Directory>".into());
