@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Configuration>
+	<RepositoryList>
+		<Repository name="somehsm">
+  		<Module>/path/to/some/pkcs11/module.so</Module>
+		<TokenLabel>OpenDNSSEC</TokenLabel>
+  		<PIN>1234</PIN>
+		</Repository>
+	</RepositoryList>
+
+	<Common>
+		<PolicyFile>kasp.xml</PolicyFile>
+		<ZoneListFile>zonelist.xml</ZoneListFile>
+	</Common>
+
+	<Enforcer>
+		<Datastore>
+			<Test>db.ron</Test>
+		</Datastore>
+		<!-- Set an empty working directory to override the default /var/opendnssec/tmp -->
+		<WorkingDirectory/>
+	</Enforcer>
+
+  <Signer>
+  	<Privileges>
+  		<!-- The user and group must actually exist otherwise daemonbase will refuse
+           them when serializing the kmip2pkcs11 config file, so use user and group
+           'root' which must always exit. -->
+  		<User>root</User>
+  		<Group>root</Group>
+  	</Privileges>
+  </Signer>
+</Configuration>
