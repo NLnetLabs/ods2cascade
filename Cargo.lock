@@ -250,6 +250,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "cascade-hsm-bridge-cfg"
+version = "0.1.0-alpha"
+source = "git+https://github.com/NLnetLabs/cascade-hsm-bridge#d830fa0bf6cbda1079669a285ab8b5da8ed3aa21"
+dependencies = [
+ "clap",
+ "daemonbase 0.1.4 (git+https://github.com/NLnetLabs/daemonbase?branch=main)",
+ "serde",
+ "toml 0.9.11+spec-1.1.0",
+ "tracing",
+]
+
+[[package]]
 name = "cascaded"
 version = "0.1.0-alpha5"
 source = "git+https://github.com/NLnetLabs/cascade?branch=main#a118ede54147b26e1dcd7a8e0efac5593751caaa"
@@ -1380,18 +1392,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "kmip2pkcs11-cfg"
-version = "0.1.0-alpha"
-source = "git+https://github.com/NLnetLabs/kmip2pkcs11#ad2888723250d227357ff9cc174ad715925541c6"
-dependencies = [
- "clap",
- "daemonbase 0.1.4 (git+https://github.com/NLnetLabs/daemonbase?branch=main)",
- "serde",
- "toml 0.9.11+spec-1.1.0",
- "tracing",
-]
-
-[[package]]
 name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1632,12 +1632,12 @@ version = "0.1.0-alpha1"
 dependencies = [
  "anyhow",
  "atoi",
+ "cascade-hsm-bridge-cfg",
  "cascaded",
  "domain",
  "file-owner",
  "fs-err",
  "indoc",
- "kmip2pkcs11-cfg",
  "pretty-hex",
  "pretty_assertions",
  "quick-xml",
