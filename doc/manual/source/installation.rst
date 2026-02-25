@@ -4,6 +4,8 @@ Installation
 Binary Packages
 ---------------
 
+.. Note:: Binary packages are coming soon.
+
 Getting started with Ods2Cascade is really easy by installing a binary
 package for either Debian and Ubuntu or for Red Hat Enterprise Linux (RHEL)
 and compatible systems such as Rocky Linux. Alternatively, you can run with
