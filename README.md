@@ -22,7 +22,7 @@ Progress:
   - [ ] Determine how to map any concepts in OpenDNSSEC that have exactly corresponding counterparts in Cascade.
     - [x] Handle the 2:1 mapping of separate but related OpenDNSSEC KASP policy and ADDNS XML files onto single Cascade policy files.
   - [x] Generate Cascade policy files by serializing Cascade data types.
-  - [ ] Generate `kmip2pkcs11` configuration for each OpenDNSSEC "Repository".
+  - [ ] Generate `cascade-hsm-bridge` configuration for each OpenDNSSEC "Repository".
   - [ ] Generate Cascade configuration.
   - [ ] Generate a shell script containing the sequence of commands needed to:
     - [x] Install generated Cascade policy files.
@@ -35,7 +35,7 @@ Progress:
 
 # Usage
 
-`ods2cascade` requires that both Cascade and `kmip2pkcs11` (if needed, see #22) already be installed.
+`ods2cascade` requires that both Cascade and `cascade-hsm-bridge` (if needed, see #22) already be installed.
 
 `ods2cascade` requires three filesystem paths as input:
 

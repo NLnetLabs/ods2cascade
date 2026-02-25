@@ -7,7 +7,7 @@ tl;dr
 - Run :program:`ods2cascade`.
 - Follow the steps described in the ``README.md`` that it generates.
 
-This will result in both :doc:`cascade` and :doc:`kmip2pkcs11` being
+This will result in both :doc:`cascade` and :doc:`cascade-hsm-bridge` being
 configured to behave like the OpenDNSSEC Enforcer and Signer, using the same
 input zones and HSM keys as OpenDNSSEC to publish signed zones for consumption
 by secondary nameservers via XFR.
@@ -26,7 +26,7 @@ These instructions assume that you have:
 	:program:`ods2cascade` has not been tested with earlier versions of
 	OpenDNSSEC, you are advised to upgrade before migrating.
 
-  - An existing vanilla installation of Cascade **and** :doc:`kmip2pkcs11`.
+  - An existing vanilla installation of Cascade **and** :doc:`cascade-hsm-bridge`.
     Follow the instructions at :doc:`cascade` to install both.
 
   - Installed :program:`ods2cascade`. See :doc:`installation` or
@@ -52,7 +52,7 @@ This will:
   - Connect to the OpenDNSSEC database using the credentials found in the
     OpenDNSSEC configuration to determine the location of the "signconf" XML
     files and to verify some settings.
-  - Generate Cascade policy and :doc:`kmip2pkcs11` configuration files in the
+  - Generate Cascade policy and :doc:`cascade-hsm-bridge` configuration files in the
     ``/tmp/out/`` directory.
   - Generate a ``/tmp/out/README.md`` file that will describe the steps that need to be
     taken to migrate from OpenDNSSEC to Cascade.
@@ -83,7 +83,7 @@ If the process ran successfully, output should look something like this:
      Loading /var/opendnssec/enforcer/zones.xml...
      Connecting to SQLite Enforcer database at sqlite:///var/opendnssec/kasp.db...
      Found Enforcer database version: 1
-     Generating '/tmp/out/kmip2pkcs11/SoftHSM.toml'...
+     Generating '/tmp/out/cascade-hsm-bridge/SoftHSM.toml'...
      Creating Cascade policy 'lab' from ODS KASP 'lab'....
      Generating '/tmp/out/commands.sh'...
 
