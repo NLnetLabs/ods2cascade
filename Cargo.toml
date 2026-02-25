@@ -14,6 +14,7 @@ rust-version = "1.88"
 anyhow            = "1.0.100"
 atoi              = "2.0.0"
 cascaded          = { git = "https://github.com/NLnetLabs/cascade", branch = "main" }
+clap = { version = "4.5.60", features = ["derive"] }
 domain            = { git = "https://github.com/NLnetLabs/domain", branch = "main", version = "0.11.1" } # Use the same domain as cascade
 file-owner        = "0.1.2"
 fs-err            = "3.2.2"
