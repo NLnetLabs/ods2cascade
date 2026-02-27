@@ -64,9 +64,7 @@ fn main() -> Result<(), ()> {
             println!(
                 "cargo::warning=A .jj directory exists, but {msg}. Unable to determine git revision..."
             );
-            if package == "ods2cascade" {
-                println!("cargo::rerun-if-changed=.jj");
-            }
+            println!("cargo::rerun-if-changed=.jj");
         }).ok()
     } else {
         // On first run of git, check if it executes ok (aka do not unwrap, but catch the error)
