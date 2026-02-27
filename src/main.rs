@@ -47,7 +47,7 @@ async fn main() {
         .nth(1)
         .map(|arg| arg == "--version" || arg == "-V")
     {
-        println!("{} {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
+        println!("{}", env!("ODS2CASCADE_BUILD_VERSION"));
         std::process::exit(0);
     }
 
@@ -74,6 +74,8 @@ async fn main() {
     let c_conf_toml_path = args.next().unwrap();
     let o_conf_xml_path = args.next().unwrap();
     let output_dir_path = args.next().unwrap();
+
+    println!("ods2cascade version {}", env!("ODS2CASCADE_BUILD_VERSION"));
 
     if let Err(err) = Migrator::migrate(
         &c_conf_toml_path,
