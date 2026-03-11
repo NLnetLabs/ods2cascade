@@ -556,7 +556,7 @@ impl Migrator {
                 Ok(path) => path,
                 Err(err) if force => {
                     eprintln!(
-                        "Force mode enabled: Mapping invalid PKCS#11 module path '{}' to /dev/null: {err}",
+                        "Force mode enabled: Mapping invalid PKCS#11 module path '{}' to '/dev/null': {err}",
                         o_repo.module
                     );
                     // We have to return something that is likely to be a
