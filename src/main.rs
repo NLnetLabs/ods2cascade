@@ -901,29 +901,34 @@ impl Migrator {
             }
         }
 
-        let readme_md = Self::generate_readme_markdown(
-            &c_conf,
-            c_conf_toml_path,
-            &o_conf,
-            o_conf_xml_path,
+        let cfg = GenerateReadmeConfig {
+            cascade: GenerateReadmeCascadeConfig {
+                conf: &c_conf,
+                conf_toml_path: c_conf_toml_path,
+            },
+            kmip2pkcs11: GenerateReadmeCascadeHsmBridgeConfig {
+                output_dir: &k2p_dir,
+                conf_paths: &k2p_conf_paths,
+            },
+            opendnssec: GenerateReadmeOpenDnssecConfig {
+                conf: &o_conf,
+                conf_xml_path: o_conf_xml_path,
+                signer_interfaces: &o_signer_interfaces,
+                writes_signed_zones_to_disk: o_writes_signed_zones_to_disk,
+                uses_jitter: o_uses_jitter,
+                uses_non_default_denial_validity: o_uses_non_default_denial_validity,
+                uses_non_zero_nsec3_ttl: o_uses_non_zero_nsec3_ttl,
+                uses_nsec3_re_salting: o_uses_nsec3_re_salting,
+                uses_non_sha1_nsec3_hash_alg: o_uses_non_sha1_nsec3_hash_alg,
+                uses_non_bcp_nsec3_params: o_uses_non_bcp_nsec3_params,
+                restricts_outbound_xfr: o_restricts_outbound_xfr,
+                uses_retire_safety: o_uses_retire_safety,
+                uses_publish_safety: o_uses_publish_safety,
+            },
             output_dir_path,
-            &cmd_file_path,
-            &o_signer_interfaces,
-            o_writes_signed_zones_to_disk,
-            o_uses_jitter,
-            o_uses_non_default_denial_validity,
-            o_uses_non_zero_nsec3_ttl,
-            o_uses_nsec3_re_salting,
-            o_uses_non_sha1_nsec3_hash_alg,
-            o_uses_non_bcp_nsec3_params,
-            o_restricts_outbound_xfr,
-            o_uses_retire_safety,
-            o_uses_publish_safety,
-            &k2p_dir,
-            &k2p_conf_paths,
-            &db_conn,
-        )
-        .await?;
+            cmd_file_path: &cmd_file_path,
+        };
+        let readme_md = Self::generate_readme_markdown(cfg, &db_conn).await?;
 
         let readme_file_path = format!("{output_dir_path}/README.md");
         let mut readme_file = io.create(&readme_file_path)?;
@@ -940,91 +945,72 @@ impl Migrator {
         Ok(())
     }
 
-    #[allow(clippy::too_many_arguments)]
-    async fn generate_readme_markdown(
-        c_conf: &cascaded::config::Config,
-        c_conf_toml_path: &str,
-        o_conf: &Configuration,
-        o_conf_xml_path: &str,
-        output_dir_path: &str,
-        cmd_file_path: &str,
-        o_signer_interfaces: &Option<Vec<String>>,
-        o_writes_signed_zones_to_disk: bool,
-        o_uses_jitter: bool,
-        o_uses_non_default_denial_validity: bool,
-        o_uses_non_zero_nsec3_ttl: bool,
-        o_uses_nsec3_re_salting: bool,
-        o_uses_non_sha1_nsec3_hash_alg: bool,
-        o_uses_non_bcp_nsec3_params: bool,
-        o_restricts_outbound_xfr: bool,
-        o_uses_retire_safety: bool,
-        o_uses_publish_safety: bool,
-        k2p_dir: &str,
-        k2p_conf_paths: &[String],
+    async fn generate_readme_markdown<'a>(
+        cfg: GenerateReadmeConfig<'a>,
         #[allow(unused_variables)] db_conn: &DbConn,
     ) -> anyhow::Result<String> {
         use std::fmt::Write;
 
         let mut changes = String::new();
 
-        if o_writes_signed_zones_to_disk {
+        if cfg.opendnssec.writes_signed_zones_to_disk {
             writeln!(
                 &mut changes,
                 "> - Signed zones will NOT be written to disk. Cascade only supports publication of signed zones via XFR. You will need a secondary nameserver or some other tool receive/fetch new signed zone versions via XFR."
             )?;
         }
-        if o_uses_non_default_denial_validity {
+        if cfg.opendnssec.uses_non_default_denial_validity {
             writeln!(
                 &mut changes,
                 "> - Cascade doesn't support <Validity><Denial> != <Validity><Default>"
             )?;
         }
-        if o_uses_non_zero_nsec3_ttl {
+        if cfg.opendnssec.uses_non_zero_nsec3_ttl {
             writeln!(&mut changes, "> - Cascade <Denial><NSEC3><TTL> != 0")?;
         }
-        if o_uses_nsec3_re_salting {
+        if cfg.opendnssec.uses_nsec3_re_salting {
             writeln!(
                 &mut changes,
                 "> - Cascade doesn't support <Denial><NSEC3><Resalt>"
             )?;
         }
-        if o_uses_non_sha1_nsec3_hash_alg {
+        if cfg.opendnssec.uses_non_sha1_nsec3_hash_alg {
             writeln!(
                 &mut changes,
                 "> - Cascade only supports [RFC 5155](https://datatracker.ietf.org/doc/rfc5155/) NSEC3 hashing algorithm 1 (SHA-1). Cascade will use SHA-1 NSEC3 hashing."
             )?;
         }
-        if o_uses_non_bcp_nsec3_params {
+        if cfg.opendnssec.uses_non_bcp_nsec3_params {
             writeln!(
                 &mut changes,
                 "> - Cascade only supports [RFC 9276/BCP 236](https://datatracker.ietf.org/doc/rfc9276/) NSEC3 parameter settings: 0 iterations, no salt. Cascade will use BCP iteration and salt settings."
             )?;
         }
-        if o_uses_jitter {
+        if cfg.opendnssec.uses_jitter {
             writeln!(
                 &mut changes,
                 "> - Cascade implements incremental signing differently than OpenDNSSEC and as such neither needs nor supports the OpenDNSSEC jitter functionality. Jitter settings will be ignored."
             )?;
         }
-        if o_restricts_outbound_xfr {
+        if cfg.opendnssec.restricts_outbound_xfr {
             writeln!(
                 &mut changes,
                 "> - Cascade doesn't support restricting outbound XFR."
             )?;
         }
-        if o_uses_retire_safety {
+        if cfg.opendnssec.uses_retire_safety {
             writeln!(
                 &mut changes,
                 "> - Cascade handles key state changes differently than OpenDNSSEC and as such specified non-zero <RetireSafety> periods will be ignored."
             )?;
         }
-        if o_uses_publish_safety {
+        if cfg.opendnssec.uses_publish_safety {
             writeln!(
                 &mut changes,
                 "> - Cascade handles key state changes differently than OpenDNSSEC and as such specified non-zero <PublishSafety> periods will be ignored."
             )?;
         }
-        if o_restricts_outbound_xfr {
+        if cfg.opendnssec.restricts_outbound_xfr {
             writeln!(
                 &mut changes,
                 "> - Cascade doesn't support restricting outbound XFR."
@@ -1040,6 +1026,10 @@ impl Migrator {
         }
 
         let mut p = MarkdownWriter::new("#");
+
+        let o_conf_xml_path = cfg.opendnssec.conf_xml_path;
+        let c_conf_toml_path = cfg.cascade.conf_toml_path;
+        let output_dir_path = cfg.output_dir_path;
 
         p.writeln(indoc::formatdoc!("
             # How to migrate your OpenDNSSEC instance to Cascade
@@ -1080,13 +1070,13 @@ impl Migrator {
 
         // Notify the user of any Cascade config changes they need to make.
         // TODO: Use https://github.com/NLnetLabs/ods2cascade/pull/36 when/if ready.
-        if let Some(o_signer_interfaces) = o_signer_interfaces {
-            let mut different = c_conf.server.servers.len() == o_signer_interfaces.len();
+        if let Some(o_signer_interfaces) = cfg.opendnssec.signer_interfaces {
+            let mut different = cfg.cascade.conf.server.servers.len() == o_signer_interfaces.len();
 
             // Determine if the user has already correctly configured
             // Cascade to match the listener settings of OpenDNSSEC.
             if !different {
-                for c_server in &c_conf.server.servers {
+                for c_server in &cfg.cascade.conf.server.servers {
                     let c_server = c_server.addr().to_string();
                     if !o_signer_interfaces.contains(&c_server) {
                         different = true;
@@ -1104,7 +1094,7 @@ impl Migrator {
                 p.println(format!("  servers = [{}]", o_signer_interfaces.join(",")))?;
                 p.next_step()?;
             }
-        } else if c_conf.server.servers.is_empty() {
+        } else if cfg.cascade.conf.server.servers.is_empty() {
             p.println("Configure Cascade to publish on a UDP+TCP interface.")?;
             p.println("This is needed because unlike OpenDNSSEC, Cascade always makes signed zones available via XFR for secondary nameservers.")?;
             p.println("")?;
@@ -1121,7 +1111,7 @@ impl Migrator {
             p.next_step()?;
         }
 
-        if o_writes_signed_zones_to_disk {
+        if cfg.opendnssec.writes_signed_zones_to_disk {
             // OpenDNSSEC was not configured to serve XFR. It must therefore have
             // been writing signed zones to files on disk.
             p.println("Deploy a secondary nameserver.")?;
@@ -1132,13 +1122,13 @@ impl Migrator {
         }
 
         p.next_step()?;
-        let have_multiple_k2p_configs = k2p_conf_paths.len() > 1;
+        let have_multiple_k2p_configs = cfg.kmip2pkcs11.conf_paths.len() > 1;
         let plural = if have_multiple_k2p_configs { "s" } else { "" };
         p.println(format!(
             "Validate your kmip2pkcs11 configuration file{plural}."
         ))?;
         let mut validate_cmds = String::new();
-        for k2p_conf_path in k2p_conf_paths.iter() {
+        for k2p_conf_path in cfg.kmip2pkcs11.conf_paths.iter() {
             // Sudo is not required here as the config file was written by the
             // current user.
             use std::fmt::Write;
@@ -1156,7 +1146,7 @@ impl Migrator {
         p.note(format!("This should be a location that the kmip2pkcs11 instance{plural} will have read access to."))?;
         p.println("")?;
         if !have_multiple_k2p_configs
-            && let Some(signer) = o_conf.signer.as_ref()
+            && let Some(signer) = cfg.opendnssec.conf.signer.as_ref()
             && let Some(Privileges {
                 user: Some(user), ..
             }) = &signer.privileges
@@ -1167,7 +1157,13 @@ impl Migrator {
             p.println("")?;
         }
         // TODO: Should the copied files be chown'd to the kmip2pkcs11 user?
-        p.code_block("sh", format!("sudo cp {k2p_dir}/*.toml /etc/kmip2pkcs11/"))?;
+        p.code_block(
+            "sh",
+            format!(
+                "sudo cp {}/*.toml /etc/kmip2pkcs11/",
+                cfg.kmip2pkcs11.output_dir
+            ),
+        )?;
 
         if have_multiple_k2p_configs {
             p.next_step()?;
@@ -1176,7 +1172,7 @@ impl Migrator {
                 If using systemd to control kmip2pkcs11 you will need to create separate kmip2pkcs11 units for each of the following kmip2pkcs11 configuration files.
                 Each systemd kmip2pkcs11 unit should invoke kmi2pkcs11 with `--config` specifying its own kmi2pkcs11 configuration file.
             "})?;
-            for k2p_conf_path in k2p_conf_paths {
+            for k2p_conf_path in cfg.kmip2pkcs11.conf_paths {
                 let file_name = Path::new(&k2p_conf_path).file_name().unwrap();
                 p.println(format!(
                     "  - `/etc/kmip2pkcs11/{}`",
@@ -1204,7 +1200,7 @@ impl Migrator {
         }
         p.println("Otherwise:")?;
         let mut start_cmds = String::new();
-        for k2p_conf_path in k2p_conf_paths {
+        for k2p_conf_path in cfg.kmip2pkcs11.conf_paths {
             let file_name = Path::new(&k2p_conf_path).file_name().unwrap();
             use std::fmt::Write;
             writeln!(
@@ -1234,13 +1230,13 @@ impl Migrator {
 
         p.next_step()?;
         p.println("Review the generated commands that will be used to configure Cascade.")?;
-        p.code_block("sh", format!("less {cmd_file_path}"))?;
+        p.code_block("sh", format!("less {}", cfg.cmd_file_path))?;
 
         p.next_step()?;
         p.println("Execute the generated commands to configure Cascade.")?;
-        p.warning(format!("This step will cause zones to be added and signed. If you have a lot of zones or very large zones this could use a lot of CPU and/or memory. Please review the commands in `{cmd_file_path}` before executing the script."))?;
+        p.warning(format!("This step will cause zones to be added and signed. If you have a lot of zones or very large zones this could use a lot of CPU and/or memory. Please review the commands in `{}` before executing the script.", cfg.cmd_file_path))?;
         p.println("")?;
-        p.code_block("sh", format!("sh -ex {cmd_file_path}"))?;
+        p.code_block("sh", format!("sh -ex {}", cfg.cmd_file_path))?;
         p.last_step()?;
 
         Ok(p.into())
@@ -1331,6 +1327,40 @@ impl MarkdownWriter {
     fn into(self) -> String {
         self.buf
     }
+}
+
+struct GenerateReadmeConfig<'a> {
+    cascade: GenerateReadmeCascadeConfig<'a>,
+    kmip2pkcs11: GenerateReadmeCascadeHsmBridgeConfig<'a>,
+    opendnssec: GenerateReadmeOpenDnssecConfig<'a>,
+    output_dir_path: &'a str,
+    cmd_file_path: &'a str,
+}
+
+struct GenerateReadmeCascadeConfig<'a> {
+    conf: &'a cascaded::config::Config,
+    conf_toml_path: &'a str,
+}
+
+struct GenerateReadmeCascadeHsmBridgeConfig<'a> {
+    output_dir: &'a str,
+    conf_paths: &'a [String],
+}
+
+struct GenerateReadmeOpenDnssecConfig<'a> {
+    conf: &'a Configuration,
+    conf_xml_path: &'a str,
+    signer_interfaces: &'a Option<Vec<String>>,
+    writes_signed_zones_to_disk: bool,
+    uses_jitter: bool,
+    uses_non_default_denial_validity: bool,
+    uses_non_zero_nsec3_ttl: bool,
+    uses_nsec3_re_salting: bool,
+    uses_non_sha1_nsec3_hash_alg: bool,
+    uses_non_bcp_nsec3_params: bool,
+    restricts_outbound_xfr: bool,
+    uses_retire_safety: bool,
+    uses_publish_safety: bool,
 }
 
 fn process_adapter<IO: FsOps>(
