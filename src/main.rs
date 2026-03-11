@@ -107,7 +107,7 @@ impl std::fmt::Display for MigrateError {
             MigrateError::OnlyUnusedKaspPoliciesFound => {
                 f.write_str("None of the found OpenDNSSEC KASP policies appear to be in use, nothing to migrate.")
             },
-            MigrateError::NotYetSupportedByCascade(feature) => write!(f, "Cascade does not yet support {feature}."),
+            MigrateError::NotYetSupportedByCascade(feature) => write!(f, "This version of ods2cascade is not aware of support for {feature} in Cascade. Upgrade to a newer version of ods2cascade if available."),
             MigrateError::InconsistentState(err) => write!(f, "Inconsistent state: {err}"),
             MigrateError::OutdatedState(err) => write!(f, "Outdated state: {err}"),
         }
