@@ -222,10 +222,13 @@ impl Migrator {
             for ksk in &o_kasp.keys.ksks {
                 if key_alg.is_none() {
                     key_alg = Some(ksk.algorithm.clone());
-                } else if key_alg.as_ref() != Some(&ksk.algorithm) {
-                    return Err(MigrateError::NotYetSupportedByCascade(
-                        "Mixed key algorithms".into(),
-                    )
+                } else if let Some(key_alg) = &key_alg
+                    && key_alg != &ksk.algorithm
+                {
+                    return Err(MigrateError::NotYetSupportedByCascade(format!(
+                        "Mixed key algorithms: {} (len {}) != {} (len {}",
+                        key_alg.value, key_alg.length, ksk.algorithm.value, ksk.algorithm.length
+                    ))
                     .into());
                 }
                 if ksk.standby.is_some() {
