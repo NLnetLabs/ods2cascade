@@ -314,14 +314,13 @@ impl Migrator {
         }
 
         if !errors.is_empty() {
-            for error in &errors {
-                if force {
+            if force {
+                for error in &errors {
                     eprintln!(
                         "WARNING: Force mode enabled: Ignoring lack of support by Cascade for '{error}'."
                     );
                 }
-            }
-            if !force {
+            } else {
                 return Err(MigrateError::NotYetSupportedByCascade(errors).into());
             }
         }
