@@ -162,8 +162,11 @@ pub mod conf {
     #[derive(Debug, Deserialize)]
     #[serde(rename_all = "PascalCase")]
     pub struct Privileges {
+        #[serde(default)]
         pub user: Option<String>,
+        #[serde(default)]
         pub group: Option<String>,
+        #[serde(default)]
         pub directory: Option<String>,
     }
 

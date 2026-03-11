@@ -207,6 +207,15 @@ impl Migrator {
         {
             errors.push("<NotifyCommand/>".into());
         }
+        if o_conf
+            .signer
+            .as_ref()
+            .and_then(|s| s.privileges.as_ref())
+            .and_then(|p| p.directory.as_ref())
+            .is_some()
+        {
+            errors.push("<Signer><Privileges><Directory>".into());
+        }
 
         // Check for HSM configuration issues.
         for o_repo in &o_conf.repository_list.repositories {
