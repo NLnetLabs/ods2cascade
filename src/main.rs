@@ -966,7 +966,10 @@ impl Migrator {
             )?;
         }
         if cfg.opendnssec.uses_non_zero_nsec3_ttl {
-            writeln!(&mut changes, "> - Cascade <Denial><NSEC3><TTL> != 0")?;
+            writeln!(
+                &mut changes,
+                "> - Cascade doesn't support a non-zero <Denial><NSEC3><TTL> value"
+            )?;
         }
         if cfg.opendnssec.uses_nsec3_re_salting {
             writeln!(
