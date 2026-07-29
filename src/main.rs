@@ -1244,7 +1244,7 @@ fn create_cascade_policy(
                 .keys
                 .purge
                 .as_ref()
-                .map(|ts| Duration::from_secs(parse_ods_ts(&ts) as u64))
+                .map(|ts| Duration::from_secs(parse_ods_ts(ts) as u64))
                 .unwrap_or_default(),
             publication_nameservers: Default::default(), // ODS doesn't have this concept
         },
