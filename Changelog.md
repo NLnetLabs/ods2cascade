@@ -18,7 +18,13 @@ Released yyyy-mm-dd.
 
 Released yyyy-mm-dd.
 
+### Bug fixes
+
+- Fix broken MySQL connectivity. ([#49] by @ximon18)
+
 ### Other changes
 
 - Add the git commit hash to the version output. (by @ximon18)
 - Update to Cascade v0.1.0-beta4 policy file format. (by @ximon18)
+
+[#49]: https://github.com/NLnetLabs/ods2cascade/pull/49
