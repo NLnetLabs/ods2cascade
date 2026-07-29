@@ -14,7 +14,7 @@ sudo chmod u+r /etc/cascade/policies/too-many-nsec3-iterations.toml
 # Tell Cascade to reload its policy files.
 cascade --server 127.0.0.1:4539 policy reload
 
-# Tell Cascade that a kmip2pkcs11 instance named 'somehsm' is available at 127.0.0.1.
+# Tell Cascade that a cascade-hsm-bridge instance named 'somehsm' is available at 127.0.0.1.
 cascade --server 127.0.0.1:4539 hsm add --insecure --username OpenDNSSEC --password 1234 somehsm 127.0.0.1
 
 # Tell Cascade to load and sign our zones using the appropriate policies.
