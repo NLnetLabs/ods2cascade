@@ -479,9 +479,22 @@ pub mod kasp {
     #[serde(rename_all = "PascalCase")]
     pub struct Algorithm {
         #[serde(rename = "@length")]
-        pub length: String, // TODO: should actually be usize
+        // https://github.com/NLnetLabs/ods2cascade/issues/59: While
+        // https://github.com/opendnssec/opendnssec/blob/2.1.14/conf/kasp.rnc
+        // specifies that length is mandatory, the actual OpenDNSSEC kasp
+        // XML parsing code does not enforce the schema but instead uses a
+        // default length of 0.
+        #[serde(default = "Algorithm::default_algorithm_length")]
+        pub length: String,
         #[serde(rename = "$text")]
         pub value: String, // TODO: should be a u8
+    }
+
+    impl Algorithm {
+        fn default_algorithm_length() -> String {
+            // "0" according to https://github.com/opendnssec/opendnssec/blob/1f1bea259f55ccf3841184b3ba504a5d1f4639b8/enforcer/src/db/policy_key_ext.c#L339
+            "0".to_string()
+        }
     }
 
     #[derive(Debug, Deserialize)]

@@ -18,6 +18,14 @@ Released yyyy-mm-dd.
 
 Released yyyy-mm-dd.
 
+### Bug fixes
+
+- "Error: missing field @length". ([#61] by @ximon18, reported in [#59] by
+  @bortzmeyer)
+
 ### Other changes
 
 - Add the git commit hash to the version output. (by @ximon18)
+
+[#59]: https://github.com/NLnetLabs/ods2cascade/issues/59
+[#61]: https://github.com/NLnetLabs/ods2cascade/pull/61
