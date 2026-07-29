@@ -22,10 +22,16 @@ Released yyyy-mm-dd.
 
 - "Error: missing field @length". ([#61] by @ximon18, reported in [#59] by
   @bortzmeyer)
+- "Wrong algorithm determined for algorithm number 14". ([#63] by @ximon18)
 
 ### Other changes
 
 - Add the git commit hash to the version output. (by @ximon18)
 
+### Acknowledgements
+
+Thanks to @bortzmeyer for testing Ods2Cascade and providing valuable feedback!
+
 [#59]: https://github.com/NLnetLabs/ods2cascade/issues/59
 [#61]: https://github.com/NLnetLabs/ods2cascade/pull/61
+[#63]: https://github.com/NLnetLabs/ods2cascade/pull/63
