@@ -858,13 +858,6 @@ impl Migrator {
 
         "))?;
 
-        #[cfg(not(test))]
-        if matches!(db_conn, DbConn::MySQL(_)) {
-            p.writeln(indoc::indoc!(
-                "  - Retiring the OpenDNSSEC MySQL database instance."
-            ))?;
-        }
-
         p.warning("The commands shown below are examples only and require your review and may need adjusting for your setup.")?;
         p.writeln("")?;
 
@@ -1031,6 +1024,14 @@ impl Migrator {
         p.warning(format!("This step will cause zones to be added and signed. If you have a lot of zones or very large zones this could use a lot of CPU and/or memory. Please review the commands in `{cmd_file_path}` before executing the script."))?;
         p.println("")?;
         p.code_block("sh", format!("sh -ex {cmd_file_path}"))?;
+
+        #[cfg(not(test))]
+        if matches!(db_conn, DbConn::MySQL(_)) {
+            p.next_step()?;
+            p.println("(optional) Retire the OpenDNSSEC MySQL database instance.")?;
+            p.println("If the MySQL database was only used by OpenDNSSEC you may no longer need it after switching to Cascade and could consider backing it up and retiring it.")?;
+        }
+
         p.last_step()?;
 
         Ok(p.into())
@@ -1505,7 +1506,7 @@ impl DbConn {
         // extract the common code into a helper function or even a proc
         // macro.
         #[cfg(not(test))]
-        const Q: &str = "SELECT * FROM databaseversion";
+        const Q: &str = "SELECT * FROM databaseVersion";
         match self {
             #[cfg(not(test))]
             DbConn::MySQL(c) => sqlx::query_as(Q).fetch_one(c).await,

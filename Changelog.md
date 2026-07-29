@@ -20,6 +20,7 @@ Released yyyy-mm-dd.
 
 ### Bug fixes
 
+- Fix broken MySQL connectivity. ([#49] by @ximon18)
 - "Error: missing field @length". ([#61] by @ximon18, reported in [#59] by
   @bortzmeyer)
 - "Wrong algorithm determined for algorithm number 14". ([#63] by @ximon18)
@@ -33,6 +34,7 @@ Released yyyy-mm-dd.
 
 Thanks to @bortzmeyer for testing Ods2Cascade and providing valuable feedback!
 
+[#49]: https://github.com/NLnetLabs/ods2cascade/pull/49
 [#59]: https://github.com/NLnetLabs/ods2cascade/issues/59
 [#61]: https://github.com/NLnetLabs/ods2cascade/pull/61
 [#63]: https://github.com/NLnetLabs/ods2cascade/pull/63

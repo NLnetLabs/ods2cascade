@@ -681,7 +681,7 @@ dependencies = [
 [[package]]
 name = "domain-kmip"
 version = "0.0.1"
-source = "git+https://github.com/NLnetLabs/domain-kmip?branch=main#632dfab6c191a2d191e7fc670e246d4e87da6bf7"
+source = "git+https://github.com/NLnetLabs/domain-kmip.git?branch=main#632dfab6c191a2d191e7fc670e246d4e87da6bf7"
 dependencies = [
  "bcder",
  "domain",
@@ -2557,6 +2557,8 @@ dependencies = [
  "sha2",
  "smallvec",
  "thiserror",
+ "tokio",
+ "tokio-stream",
  "tracing",
  "url",
 ]
@@ -2595,6 +2597,7 @@ dependencies = [
  "sqlx-postgres",
  "sqlx-sqlite",
  "syn 2.0.119",
+ "tokio",
  "url",
 ]
 
