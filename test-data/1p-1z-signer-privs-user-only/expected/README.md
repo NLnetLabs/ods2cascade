@@ -50,24 +50,24 @@ servers = ["0.0.0.0:53"]
 Or use some other tool to retrieve signed zones via XFR and write them to disk.
 This is needed because your OpenDNSSEC instance writes signed zones to disk which Cascade is not yet able to do.
 
-# 3. Validate your kmip2pkcs11 configuration file.
+# 3. Validate your cascade-hsm-bridge configuration file.
 
 E.g.
 ```sh
-kmip2pkcs11 -c out/kmip2pkcs11/somehsm.toml --check-config
+cascade-hsm-bridge -c out/cascade-hsm-bridge/somehsm.toml --check-config
 ```
 
-# 4. Copy the kmip2pkcs11 configuration file to the proper location.
+# 4. Copy the cascade-hsm-bridge configuration file to the proper location.
 
 > [!NOTE]
-> This should be a location that the kmip2pkcs11 instance will have read access to.
+> This should be a location that the cascade-hsm-bridge instance will have read access to.
 
 > [!NOTE]
-> Your kmip2pkcs11 instance will run as user 'root' thus the kmip2pkcs11 configuration file should be readable by this user.
+> Your cascade-hsm-bridge instance will run as user 'root' thus the cascade-hsm-bridge configuration file should be readable by this user.
 
 E.g.
 ```sh
-sudo cp out/kmip2pkcs11/*.toml /etc/kmip2pkcs11/
+sudo cp out/cascade-hsm-bridge/*.toml /etc/cascade-hsm-bridge/
 ```
 
 # 5. Stop OpenDNSSEC.
@@ -80,17 +80,17 @@ E.g.
 sudo ods-control stop
 ```
 
-# 6. Start kmip2pkcs11.
+# 6. Start cascade-hsm-bridge.
 
 If using systemd:
 E.g.
 ```sh
-sudo systemctl start kmip2pkcs11
+sudo systemctl start cascade-hsm-bridge
 ```
 Otherwise:
 E.g.
 ```sh
-sudo kmip2pkcs11 -c /etc/kmip2pkcs11/somehsm.toml
+sudo cascade-hsm-bridge -c /etc/cascade-hsm-bridge/somehsm.toml
 ```
 
 # 7. Validate your Cascade configuration.
