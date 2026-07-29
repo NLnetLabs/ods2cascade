@@ -28,7 +28,9 @@ Released yyyy-mm-dd.
 
 - Add the git commit hash to the version output. (by @ximon18)
 - Update to Cascade v0.1.0-beta4 policy file format. (by @ximon18)
+- More renaming of kmip2pkcs11 to cascade-hsm-bridge. ([#56] by @ximon18)
 
 [#49]: https://github.com/NLnetLabs/ods2cascade/pull/49
+[#56]: https://github.com/NLnetLabs/ods2cascade/pull/56
 [#59]: https://github.com/NLnetLabs/ods2cascade/issues/59
 [#61]: https://github.com/NLnetLabs/ods2cascade/pull/61
