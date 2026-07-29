@@ -20,7 +20,8 @@
       <RetireSafety>PT3600S</RetireSafety>
       <PublishSafety>PT3600S</PublishSafety>
       <CSK>
-        <Algorithm length="2048">8</Algorithm>
+        <!-- https://github.com/NLnetLabs/ods2cascade/issues/59: Use an algorithm that does not require a length. -->
+        <Algorithm>13</Algorithm>
         <Lifetime>P1Y</Lifetime>
         <Repository>somehsm</Repository>
       </CSK>
