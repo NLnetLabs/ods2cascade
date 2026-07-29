@@ -1535,7 +1535,7 @@ fn create_cascade_policy(
 
     // Cascade doesn't yet support restricting XFR from secondaries.
     // Allow XFR from any secondary.
-    let accept_xfr_requests_from = vec![];
+    let provide_xfr_to = vec![];
 
     let policy = cascaded::policy::PolicyVersion {
         name: kasp.name.clone().into_boxed_str(),
@@ -1571,6 +1571,7 @@ fn create_cascade_policy(
                     .unwrap_or(&kasp.signatures.validity.default),
             ),
             cds_remain_time: parse_ods_ts(&kasp.signatures.refresh),
+            ds_algorithm: DsAlgorithm::Sha256, // TODO: ODS doesn't have this
             default_ttl: Ttl::from_secs(parse_ods_ts(&kasp.keys.ttl)),
             auto_remove: kasp.keys.purge.is_some(),
             auto_remove_delay: kasp
@@ -1598,7 +1599,7 @@ fn create_cascade_policy(
         },
         server: ServerPolicy {
             outbound: OutboundPolicy {
-                provide_xfr_to: vec![], // TODO
+                provide_xfr_to,
                 send_notify_to,
             },
         },
