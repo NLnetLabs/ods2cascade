@@ -1400,7 +1400,7 @@ fn alg_to_key_parameters(key: Key) -> cascaded::policy::KeyParameters {
         "8" => cascaded::policy::KeyParameters::RsaSha256(algorithm.length.parse().unwrap()),
         "10" => cascaded::policy::KeyParameters::RsaSha512(algorithm.length.parse().unwrap()),
         "13" => cascaded::policy::KeyParameters::EcdsaP256Sha256,
-        "14" => cascaded::policy::KeyParameters::EcdsaP256Sha256,
+        "14" => cascaded::policy::KeyParameters::EcdsaP384Sha384,
         "15" => cascaded::policy::KeyParameters::Ed25519,
         "16" => cascaded::policy::KeyParameters::Ed448,
         alg => panic!("Unsupported algorithm number {alg}"),
