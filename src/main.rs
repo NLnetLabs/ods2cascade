@@ -9,6 +9,7 @@ use std::{
     net::{IpAddr, SocketAddr},
     path::{Path, PathBuf},
     str::FromStr,
+    time::Duration,
 };
 
 use anyhow::{anyhow, bail};
@@ -47,7 +48,7 @@ async fn main() {
         .nth(1)
         .map(|arg| arg == "--version" || arg == "-V")
     {
-        println!("{} {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
+        println!("{}", env!("ODS2CASCADE_BUILD_VERSION"));
         std::process::exit(0);
     }
 
@@ -74,6 +75,8 @@ async fn main() {
     let c_conf_toml_path = args.next().unwrap();
     let o_conf_xml_path = args.next().unwrap();
     let output_dir_path = args.next().unwrap();
+
+    println!("ods2cascade version {}", env!("ODS2CASCADE_BUILD_VERSION"));
 
     if let Err(err) = Migrator::migrate(
         &c_conf_toml_path,
@@ -855,13 +858,6 @@ impl Migrator {
 
         "))?;
 
-        #[cfg(not(test))]
-        if matches!(db_conn, DbConn::MySQL(_)) {
-            p.writeln(indoc::indoc!(
-                "  - Retiring the OpenDNSSEC MySQL database instance."
-            ))?;
-        }
-
         p.warning("The commands shown below are examples only and require your review and may need adjusting for your setup.")?;
         p.writeln("")?;
 
@@ -1031,6 +1027,14 @@ impl Migrator {
         p.warning(format!("This step will cause zones to be added and signed. If you have a lot of zones or very large zones this could use a lot of CPU and/or memory. Please review the commands in `{cmd_file_path}` before executing the script."))?;
         p.println("")?;
         p.code_block("sh", format!("sh -ex {cmd_file_path}"))?;
+
+        #[cfg(not(test))]
+        if matches!(db_conn, DbConn::MySQL(_)) {
+            p.next_step()?;
+            p.println("(optional) Retire the OpenDNSSEC MySQL database instance.")?;
+            p.println("If the MySQL database was only used by OpenDNSSEC you may no longer need it after switching to Cascade and could consider backing it up and retiring it.")?;
+        }
+
         p.last_step()?;
 
         Ok(p.into())
@@ -1194,7 +1198,10 @@ fn create_cascade_policy(
             let port = remote.port.unwrap_or(53);
             let ip_addr = IpAddr::from_str(&remote.address)?;
             let addr = SocketAddr::new(ip_addr, port);
-            let comms_policy = NameserverCommsPolicy { addr };
+            let comms_policy = NameserverCommsPolicy {
+                addr,
+                tsig_key_name: None, // TODO
+            };
             send_notify_to.push(comms_policy);
         }
     }
@@ -1209,10 +1216,7 @@ fn create_cascade_policy(
     let policy = cascaded::policy::PolicyVersion {
         name: kasp.name.clone().into_boxed_str(),
         loader: cascaded::policy::LoaderPolicy {
-            review: ReviewPolicy {
-                required: false,
-                cmd_hook: None,
-            },
+            review: ReviewPolicy::default(), // ODS doesn't have this concept
         },
         key_manager: cascaded::policy::KeyManagerPolicy {
             hsm_server_id,
@@ -1239,7 +1243,14 @@ fn create_cascade_policy(
             cds_remain_time: parse_ods_ts(&kasp.signatures.refresh),
             ds_algorithm: DsAlgorithm::Sha256, // TODO: ODS doesn't have this
             default_ttl: Ttl::from_secs(parse_ods_ts(&kasp.keys.ttl)),
-            auto_remove: kasp.keys.purge.is_some(), // NOTE: ODS uses a delay, Cascade does not
+            auto_remove: kasp.keys.purge.is_some(),
+            auto_remove_delay: kasp
+                .keys
+                .purge
+                .as_ref()
+                .map(|ts| Duration::from_secs(parse_ods_ts(ts) as u64))
+                .unwrap_or_default(),
+            publication_nameservers: Default::default(), // ODS doesn't have this concept
         },
         signer: SignerPolicy {
             serial_policy: match kasp.zone.soa.serial.serial {
@@ -1252,14 +1263,13 @@ fn create_cascade_policy(
             sig_validity_time: 0,    // TODO
             sig_remain_time: 0,      // TODO
             denial,
-            review: ReviewPolicy {
-                required: false,
-                cmd_hook: None,
-            },
+            review: ReviewPolicy::default(), // ODS doesn't have this concept
+            signature_refresh_interval: 12 * 3600, // ODS doesn't have this concept, match the Cascade default
+            key_roll_time: 24 * 3600, // ODS doesn't have this concept, match the Cascade default
         },
         server: ServerPolicy {
             outbound: OutboundPolicy {
-                accept_xfr_requests_from: vec![], // TODO
+                provide_xfr_to: vec![], // TODO
                 send_notify_to,
             },
         },
@@ -1499,7 +1509,7 @@ impl DbConn {
         // extract the common code into a helper function or even a proc
         // macro.
         #[cfg(not(test))]
-        const Q: &str = "SELECT * FROM databaseversion";
+        const Q: &str = "SELECT * FROM databaseVersion";
         match self {
             #[cfg(not(test))]
             DbConn::MySQL(c) => sqlx::query_as(Q).fetch_one(c).await,
