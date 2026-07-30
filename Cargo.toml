@@ -13,8 +13,8 @@ rust-version = "1.88"
 [dependencies]
 anyhow            = "1.0.100"
 atoi              = "2.0.0"
-cascaded          = { git = "https://github.com/NLnetLabs/cascade", branch = "main" }
-domain            = { git = "https://github.com/NLnetLabs/domain", branch = "main", version = "0.11.1" } # Use the same domain as cascade
+cascaded          = { git = "https://github.com/NLnetLabs/cascade", tag = "v0.1.0-beta4" }
+domain            = { git = "https://github.com/NLnetLabs/domain", branch = "main" } # Use the same domain as cascade
 file-owner        = "0.1.2"
 fs-err            = "3.2.2"
 indoc             = "2.0.7"
@@ -24,7 +24,7 @@ quick-xml         = { version = "0.38.4", features = ["serialize"] }
 ron               = "0.12.0"
 sanitize-filename = "0.6.0"
 serde             = { version = "1.0.228", features = ["derive"] }
-sqlx              = { version = "0.8.6", features = ["sqlite", "mysql"] }
+sqlx              = { version = "0.8.6", features = ["runtime-tokio", "sqlite", "mysql"] }
 tokio             = { version = "1.49.0", features = ["rt", "rt-multi-thread", "macros"] }
 toml              = "0.9.11"
 

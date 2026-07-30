@@ -102,7 +102,7 @@ mod inner {
             dbg_dir: &str,
         ) -> std::io::Result<()> {
             let mut f = self.create(format!("{dbg_dir}/{name}"))?;
-            write!(f, "{:#?}", &v)?;
+            write!(f, "{:#?}", v)?;
             Ok(())
         }
 
