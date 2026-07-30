@@ -45,23 +45,29 @@ use crate::{
 #[tokio::main]
 async fn main() {
     // Poor mans CLI argument parsing. We don't need Clap (yet).
-    if let Some(true) = std::env::args()
-        .nth(1)
-        .map(|arg| arg == "--version" || arg == "-V")
-    {
+    let mut args = std::env::args().collect::<Vec<_>>();
+    let prog_name = args.remove(0);
+
+    if let Some(true) = args.first().map(|arg| arg == "--version" || arg == "-V") {
         println!("{}", env!("ODS2CASCADE_BUILD_VERSION"));
         std::process::exit(0);
     }
 
-    let mut args = std::env::args();
-    let prog_name = args.next().unwrap();
+    let mut force = false;
+    if let Some(idx) = args.iter().position(|arg| arg == "--force" || arg == "-f") {
+        force = true;
+        args.remove(idx);
+    }
 
-    if args.len() != 3 || args.any(|arg| arg == "--help" || arg == "-h") {
+    if args.len() != 3 || args.iter().any(|arg| arg == "--help" || arg == "-h") {
         println!(
             "Usage: {prog_name} [OPTIONS] <path/to/cascade.toml> <path/to/opendnssec/conf.xml> <path/to/write/files/to>"
         );
         println!();
         println!("Options:");
+        println!(
+            "  -f, --force    Ignore configuration issues or Cascade lack of support for settings where possible"
+        );
         println!("  -h, --help     Print help");
         println!("  -V, --version  Print version");
         println!();
@@ -71,23 +77,23 @@ async fn main() {
         std::process::exit(1);
     }
 
-    let mut args = std::env::args();
-    let _prog_name = args.next().unwrap();
-    let c_conf_toml_path = args.next().unwrap();
-    let o_conf_xml_path = args.next().unwrap();
-    let output_dir_path = args.next().unwrap();
+    #[allow(clippy::get_first)]
+    let c_conf_toml_path = args.get(0).unwrap();
+    let o_conf_xml_path = args.get(1).unwrap();
+    let output_dir_path = args.get(2).unwrap();
 
     println!("ods2cascade version {}", env!("ODS2CASCADE_BUILD_VERSION"));
 
     if let Err(err) = Migrator::migrate(
-        &c_conf_toml_path,
-        &o_conf_xml_path,
-        &output_dir_path,
+        c_conf_toml_path,
+        o_conf_xml_path,
+        output_dir_path,
+        force,
         &Fs::new(),
     )
     .await
     {
-        eprintln!("Error: {err}");
+        eprintln!("ERROR: {err}");
         std::process::exit(1);
     }
 }
@@ -96,7 +102,7 @@ async fn main() {
 enum MigrateError {
     KaspPolicySetIsEmpty,
     OnlyUnusedKaspPoliciesFound,
-    NotYetSupportedByCascade(String),
+    NotYetSupportedByCascade(Vec<String>),
     InconsistentState(String),
     OutdatedState(String),
 }
@@ -109,8 +115,10 @@ impl std::fmt::Display for MigrateError {
             }
             MigrateError::OnlyUnusedKaspPoliciesFound => {
                 f.write_str("None of the found OpenDNSSEC KASP policies appear to be in use, nothing to migrate.")
-            },
-            MigrateError::NotYetSupportedByCascade(feature) => write!(f, "This version of ods2cascade is not aware of support for {feature} in Cascade. Upgrade to a newer version of ods2cascade if available."),
+            }
+            MigrateError::NotYetSupportedByCascade(features) => {
+                write!(f, "This version of ods2cascade is not aware of support for the following features in Cascade. Upgrade to a newer version of ods2cascade if available. Unsupported features:\n  - {}", features.join("\n  - "))
+            }
             MigrateError::InconsistentState(err) => write!(f, "Inconsistent state: {err}"),
             MigrateError::OutdatedState(err) => write!(f, "Outdated state: {err}"),
         }
@@ -126,6 +134,7 @@ impl Migrator {
         c_conf_toml_path: &str,
         o_conf_xml_path: &str,
         output_dir_path: &str,
+        force: bool,
         io: &IO,
     ) -> anyhow::Result<()> {
         println!("Welcome to ods2cascade.");
@@ -142,6 +151,7 @@ impl Migrator {
         println!("  - OpenDNSSEC config file: {o_conf_xml_path}");
         println!("  - Cascade config file   : {c_conf_toml_path}");
         println!("  - Output directory      : {output_dir_path}");
+        println!("  - Force mode enabled    : {force}");
         println!();
 
         if io.exists(output_dir_path)? {
@@ -163,15 +173,17 @@ impl Migrator {
         let mut c_conf = cascaded::config::Config::default();
         c_conf_spec.parse_into(&mut c_conf);
         let c_pol_dir = c_conf.policy_dir.clone();
-        let c_remote_control_server =
-            c_conf.remote_control.servers.first().ok_or_else(|| {
-                anyhow!("Cascade config file should define a remote-control server.")
-            })?;
-        let c_cli_args = format!(
-            "--server {}:{}",
-            c_remote_control_server.ip(),
-            c_remote_control_server.port()
-        );
+
+        let mut c_cli_args = String::new();
+        if let Some(c_remote_control_server) = c_conf.remote_control.servers.first() {
+            c_cli_args = format!(
+                "--server {}:{}",
+                c_remote_control_server.ip(),
+                c_remote_control_server.port()
+            );
+        } else if !force {
+            bail!("Cascade config file should define a remote-control server.");
+        }
 
         println!("Loading {o_conf_xml_path}...");
         let xml = io.read_to_string(o_conf_xml_path)?;
@@ -185,11 +197,15 @@ impl Migrator {
             .iter()
             .find(|r| r.pin.is_none())
         {
-            return Err(MigrateError::NotYetSupportedByCascade(format!(
-                "HSM repositories without a <PIN/> (see repository '{}')",
-                o_repo.name
-            ))
-            .into());
+            if force {
+                eprintln!("WARNING: Force mode enabled: Ignoring lack of HSM <PIN/>.");
+            } else {
+                return Err(MigrateError::NotYetSupportedByCascade(vec![format!(
+                    "HSM repositories without a <PIN/> (see repository '{}')",
+                    o_repo.name
+                )])
+                .into());
+            }
         }
 
         println!("Loading {}...", o_conf.common.policy_file);
@@ -201,26 +217,26 @@ impl Migrator {
         }
 
         // Check for unsupported policy settings.
+        let mut errors = Vec::<String>::new();
         for o_kasp in &o_kasps.policies {
+            let o_kasp_name = &o_kasp.name;
             if o_kasp.passthrough.is_some() {
-                return Err(MigrateError::NotYetSupportedByCascade("<Passthrough/>".into()).into());
+                errors.push(format!("<Passthrough/> in ODS KASP policy '{o_kasp_name}'"));
             }
             if parse_ods_ts(&o_kasp.signatures.resign) > 0 {
-                return Err(MigrateError::NotYetSupportedByCascade(
-                    "<Resign/> aka incremental signing".into(),
-                )
-                .into());
+                errors.push(format!(
+                    "<Resign/> aka incremental signing in ODS KASP policy '{o_kasp_name}'"
+                ));
             }
-
             if o_kasp.keys.share_keys.is_some() {
-                return Err(MigrateError::NotYetSupportedByCascade("<ShareKeys/>".into()).into());
+                errors.push(format!("<ShareKeys/> in ODS KASP policy '{o_kasp_name}'"));
             }
             if matches!(&o_kasp.keys.purge, Some(d) if parse_ods_ts(d) > 0) {
-                return Err(MigrateError::NotYetSupportedByCascade(
-                    "<Purge> duration larger than zero".into(),
-                )
-                .into());
+                errors.push(format!(
+                    "<Purge> duration larger than zero in ODS KASP policy '{o_kasp_name}'"
+                ));
             }
+
             let mut key_alg = None;
             for ksk in &o_kasp.keys.ksks {
                 if key_alg.is_none() {
@@ -228,74 +244,92 @@ impl Migrator {
                 } else if let Some(key_alg) = &key_alg
                     && key_alg != &ksk.algorithm
                 {
-                    return Err(MigrateError::NotYetSupportedByCascade(format!(
-                        "Mixed key algorithms: {} (len {}) != {} (len {}",
+                    errors.push(format!(
+                        "Mixed key algorithms in ODS KASP policy '{o_kasp_name}: {} (len {}) != {} (len {}",
                         key_alg.value, key_alg.length, ksk.algorithm.value, ksk.algorithm.length
-                    ))
-                    .into());
+                    ));
                 }
                 if ksk.standby.is_some() {
-                    return Err(MigrateError::NotYetSupportedByCascade("<Standby/>".into()).into());
+                    errors.push(format!(
+                        "<Standby/> for KSK in ODS KASP policy '{o_kasp_name}'"
+                    ));
                 }
                 if ksk.rfc5011.is_some() {
-                    return Err(MigrateError::NotYetSupportedByCascade("<RFC5011/>".into()).into());
+                    errors.push(format!(
+                        "<RFC5011/> for KSK in ODS KASP policy '{o_kasp_name}"
+                    ));
                 }
                 match &ksk.ksk_roll_type {
                     None | Some(KskRollType::KskDoubleSignature) => { /* Supported */ }
                     Some(typ) => {
-                        return Err(MigrateError::NotYetSupportedByCascade(format!(
-                            "<KskRollType> {typ:?}"
-                        ))
-                        .into());
+                        errors.push(format!(
+                            "<KskRollType> {typ:?} for KSK in ODS KASP policy '{o_kasp_name}'"
+                        ));
                     }
                 }
             }
+
             for zsk in &o_kasp.keys.zsks {
                 if key_alg.is_none() {
                     key_alg = Some(zsk.algorithm.clone());
                 } else if key_alg.as_ref() != Some(&zsk.algorithm) {
-                    return Err(MigrateError::NotYetSupportedByCascade(
-                        "Mixed key algorithms".into(),
-                    )
-                    .into());
+                    errors.push(format!(
+                        "Mixed key algorithms for ZSK in ODS KASP policy '{o_kasp_name}'"
+                    ));
                 }
                 if zsk.standby.is_some() {
-                    return Err(MigrateError::NotYetSupportedByCascade("<Standby/>".into()).into());
+                    errors.push(format!(
+                        "<Standby/> for ZSK in ODS KASP policy '{o_kasp_name}'"
+                    ));
                 }
                 match &zsk.zsk_roll_type {
                     None | Some(ZskRollType::ZskPrePublication) => { /* Supported */ }
                     Some(typ) => {
-                        return Err(MigrateError::NotYetSupportedByCascade(format!(
-                            "<ZskRollType> {typ:?}"
-                        ))
-                        .into());
+                        errors.push(format!(
+                            "<ZskRollType/>{typ:?} for ZSK in ODS KASP policy '{o_kasp_name}'"
+                        ));
                     }
                 }
             }
+
             for csk in &o_kasp.keys.csks {
                 if key_alg.is_none() {
                     key_alg = Some(csk.algorithm.clone());
                 } else if key_alg.as_ref() != Some(&csk.algorithm) {
-                    return Err(MigrateError::NotYetSupportedByCascade(
-                        "Mixed key algorithms".into(),
-                    )
-                    .into());
+                    errors.push(format!(
+                        "Mixed key algorithms in ODS KASP policy '{o_kasp_name}'"
+                    ));
                 }
                 if csk.standby.is_some() {
-                    return Err(MigrateError::NotYetSupportedByCascade("<Standby/>".into()).into());
+                    errors.push(format!(
+                        "<Standby/> for CSK in ODS KASP policy '{o_kasp_name}'"
+                    ));
                 }
                 if csk.rfc5011.is_some() {
-                    return Err(MigrateError::NotYetSupportedByCascade("<RFC5011/>".into()).into());
+                    errors.push(format!(
+                        "<RFC5011/> for CSK in ODS KASP policy '{o_kasp_name}"
+                    ));
                 }
                 match &csk.csk_roll_type {
                     None => { /* Supported */ }
                     Some(typ) => {
-                        return Err(MigrateError::NotYetSupportedByCascade(format!(
-                            "<CskRollType> {typ:?}"
-                        ))
-                        .into());
+                        errors.push(format!(
+                            "<CskRollType> {typ:?} for CSK in ODS KASP policy '{o_kasp_name}'"
+                        ));
                     }
                 }
+            }
+        }
+
+        if !errors.is_empty() {
+            if force {
+                for error in &errors {
+                    eprintln!(
+                        "WARNING: Force mode enabled: Ignoring lack of support by Cascade for '{error}'."
+                    );
+                }
+            } else {
+                return Err(MigrateError::NotYetSupportedByCascade(errors).into());
             }
         }
 
@@ -491,7 +525,11 @@ impl Migrator {
         }
 
         if o_uses_tsig {
-            return Err(MigrateError::NotYetSupportedByCascade("TSIG".into()).into());
+            if force {
+                eprintln!("Force mode enabled: Ignoring lack of support by Cascade for 'TSIG'");
+            } else {
+                return Err(MigrateError::NotYetSupportedByCascade(vec!["TSIG".into()]).into());
+            }
         }
 
         if c_pol_name_by_o_pol_name_plus_addns_path.is_empty() {
@@ -521,8 +559,22 @@ impl Migrator {
         // Generate cascade-hsm-bridge configuration fragments.
         let mut chb_conf_paths = vec![];
         for o_repo in &o_conf.repository_list.repositories {
-            let lib_path = PathBuf::from_str(&o_repo.module)
-                .map_err(|err| anyhow!("Invalid PKCS#11 module path '{}': {err}", o_repo.module))?;
+            let lib_path = PathBuf::from_str(&o_repo.module);
+            let lib_path = match lib_path {
+                Ok(path) => path,
+                Err(err) if force => {
+                    eprintln!(
+                        "Force mode enabled: Mapping invalid PKCS#11 module path '{}' to '/dev/null': {err}",
+                        o_repo.module
+                    );
+                    // We have to return something that is likely to be a
+                    // valid PathBuf as that is needed in Pkcs11Config below.
+                    PathBuf::from_str("/dev/null").unwrap()
+                }
+                Err(err) => {
+                    bail!("Invalid PKCS#11 module path '{}': {err}", o_repo.module);
+                }
+            };
             let hsm_name = sanitize_filename::sanitize(&o_repo.name);
             let out_path = format!("{chb_dir}/{hsm_name}.toml");
             println!("Generating '{out_path}'...");
@@ -539,11 +591,37 @@ impl Migrator {
                 ..
             }) = o_conf.signer.as_ref().and_then(|c| c.privileges.as_ref())
             {
-                let user_id = UserId::from_str(user)
-                    .map_err(|err| anyhow!("Invalid user id '{user}': {err}"))?;
+                let user_id = UserId::from_str(user);
+                let user_id = match user_id {
+                    Ok(user_id) => user_id,
+                    Err(err) if force => {
+                        eprintln!(
+                            "Force mode enabled: Mapping invalid signer user ID '{user}' to root: {err}",
+                        );
+                        // We have to return something that is likely to be a
+                        // valid user as that is needed by daemon.identity..
+                        UserId::from_str("root").unwrap()
+                    }
+                    Err(err) => {
+                        bail!("Invalid signer user ID '{user}': {err}");
+                    }
+                };
                 let group = group.as_ref().unwrap_or(user);
-                let group_id = GroupId::from_str(group)
-                    .map_err(|err| anyhow!("Invalid group id '{group}': {err}"))?;
+                let group_id = GroupId::from_str(group);
+                let group_id = match group_id {
+                    Ok(group_id) => group_id,
+                    Err(err) if force => {
+                        eprintln!(
+                            "Force mode enabled: Mapping invalid signer group ID '{group}' to root: {err}",
+                        );
+                        // We have to return something that is likely to be a
+                        // valid group as that is needed by daemon.identity..
+                        GroupId::from_str("root").unwrap()
+                    }
+                    Err(err) => {
+                        bail!("Invalid signer group ID '{group}': {err}");
+                    }
+                };
                 daemon.identity = Some((user_id, group_id));
             }
 
@@ -930,6 +1008,7 @@ impl Migrator {
             },
             output_dir_path,
             cmd_file_path: &cmd_file_path,
+            force,
         };
         let readme_md = Self::generate_readme_markdown(cfg, &db_conn).await?;
 
@@ -1037,15 +1116,26 @@ impl Migrator {
         let c_conf_toml_path = cfg.cascade.conf_toml_path;
         let output_dir_path = cfg.output_dir_path;
 
-        p.writeln(indoc::formatdoc!("
+        p.writeln(indoc::formatdoc!(
+            "
             # How to migrate your OpenDNSSEC instance to Cascade
+        "
+        ))?;
 
+        if cfg.force {
+            p.writeln(indoc::indoc! {"
+            > [!WARNING]
+            > Force mode was enabled. This is not advised. The steps provided here will likely fail. Even if they succeed your Cascade instance will likely have limitations and/or different behaviour compared to your OpenDNSSEC instance.
+            "})?;
+        }
+
+        p.writeln(indoc::formatdoc!("
             This document was generated by `ods2cascade` with the following inputs:
             
               - OpenDNSSEC config file: `{o_conf_xml_path}`
               - Cascade config file   : `{c_conf_toml_path}`
               - Output directory      : `{output_dir_path}`
-            
+
             It suggests a set of steps and commands that can be used to migrate signing and publishing of DNS zones from OpenDNSSEC to Cascade, using data already gathered from OpenDNSSEC, adjusted for how Cascade works, and written to the specified output directory.
             
             No attempt was made to detect specifics of your system outside of OpenDNSSEC itself, or to adjust to them. For example, you will need to adjust the process to allow for things such as:
@@ -1342,6 +1432,7 @@ struct GenerateReadmeConfig<'a> {
     opendnssec: GenerateReadmeOpenDnssecConfig<'a>,
     output_dir_path: &'a str,
     cmd_file_path: &'a str,
+    force: bool,
 }
 
 struct GenerateReadmeCascadeConfig<'a> {
@@ -1421,9 +1512,9 @@ fn create_cascade_policy(
     {
         let zsk_algorithm = alg_to_key_parameters(Key::Zsk(key));
         if zsk_algorithm != *algorithm {
-            return Err(MigrateError::NotYetSupportedByCascade(format!(
+            return Err(MigrateError::NotYetSupportedByCascade(vec![format!(
                 "ZSK algorithm ({zsk_algorithm}) != KSK algorithm ({algorithm})"
-            ))
+            )])
             .into());
         }
     }
@@ -1431,9 +1522,9 @@ fn create_cascade_policy(
     let csk = kasp.keys.csks.first();
     if let Some(key) = csk {
         if algorithm.is_some() {
-            return Err(MigrateError::NotYetSupportedByCascade(
+            return Err(MigrateError::NotYetSupportedByCascade(vec![
                 "Cannot use CSK at the same time as KSK/ZSK".into(),
-            )
+            ])
             .into());
         }
         algorithm = Some(alg_to_key_parameters(Key::Csk(key)));
@@ -1515,9 +1606,9 @@ fn create_cascade_policy(
                     .unwrap_or(&kasp.signatures.validity.default),
             ),
             cds_remain_time: parse_ods_ts(&kasp.signatures.refresh),
+            ds_algorithm: DsAlgorithm::default(),
             default_ttl: Ttl::from_secs(parse_ods_ts(&kasp.keys.ttl)),
             auto_remove: kasp.keys.purge.is_some(),
-            ds_algorithm: DsAlgorithm::default(),
             auto_remove_delay: kasp
                 .keys
                 .purge
@@ -1855,7 +1946,7 @@ mod test {
         let io = Fs::new();
         io.register_dir("out");
 
-        let res = Migrator::migrate("conf.toml", "conf.xml", "out", &io).await;
+        let res = Migrator::migrate("conf.toml", "conf.xml", "out", false, &io).await;
         let v = to_inner_err::<_, std::io::Error>(res);
         assert_eq!(v.kind(), std::io::ErrorKind::AlreadyExists);
     }
@@ -1874,7 +1965,9 @@ mod test {
         let v = to_inner_err::<_, MigrateError>(res);
         assert_eq!(
             v,
-            MigrateError::NotYetSupportedByCascade("<Passthrough/>".into())
+            MigrateError::NotYetSupportedByCascade(vec![
+                "<Passthrough/> in ODS KASP policy 'minimal'".into()
+            ])
         );
         Ok(())
     }
@@ -1893,9 +1986,9 @@ mod test {
         let v = to_inner_err::<_, MigrateError>(res);
         assert_eq!(
             v,
-            MigrateError::NotYetSupportedByCascade(
+            MigrateError::NotYetSupportedByCascade(vec![
                 "HSM repositories without a <PIN/> (see repository 'somehsm')".into()
-            )
+            ])
         );
         Ok(())
     }
@@ -1980,7 +2073,7 @@ mod test {
         }
 
         // Run the migration.
-        Migrator::migrate("conf.toml", "conf.xml", "out", &io).await?;
+        Migrator::migrate("conf.toml", "conf.xml", "out", false, &io).await?;
 
         // Verify the expected outputs
         let mut expected_paths = HashSet::new();
