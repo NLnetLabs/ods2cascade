@@ -1,11 +1,13 @@
 version = "v1"
 
 [loader.review]
-required = false
+mode = "off"
 
 [key-manager]
 ds-algorithm = "SHA-256"
 auto-remove = false
+auto-remove-delay = 0
+publication-nameservers = []
 
 [key-manager.ksk]
 validity = "forever"
@@ -57,14 +59,16 @@ serial-policy = "unix-time"
 signature-inception-offset = 3600
 signature-lifetime = 1209600
 signature-remain-time = 259200
+signature-refresh-interval = 43200
+key-roll-time = 86400
 
 [signer.denial]
 type = "nsec3"
 opt-out = false
 
 [signer.review]
-required = false
+mode = "off"
 
 [server.outbound]
-accept-xfr-requests-from = []
+provide-xfr-to = []
 send-notify-to = []

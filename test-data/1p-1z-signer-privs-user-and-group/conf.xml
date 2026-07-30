@@ -25,7 +25,7 @@
   <Signer>
   	<Privileges>
   		<!-- The user and group must actually exist otherwise daemonbase will refuse
-           them when serializing the kmip2pkcs11 config file, so use user and group
+           them when serializing the cascade-hsm-bridge config file, so use user and group
            'root' which must always exit. -->
   		<User>root</User>
   		<Group>root</Group>

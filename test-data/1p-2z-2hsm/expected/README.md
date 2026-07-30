@@ -50,31 +50,31 @@ servers = ["0.0.0.0:53"]
 Or use some other tool to retrieve signed zones via XFR and write them to disk.
 This is needed because your OpenDNSSEC instance writes signed zones to disk which Cascade is not yet able to do.
 
-# 3. Validate your kmip2pkcs11 configuration files.
+# 3. Validate your cascade-hsm-bridge configuration files.
 
 E.g.
 ```sh
-kmip2pkcs11 -c out/kmip2pkcs11/somehsm.toml --check-config
-kmip2pkcs11 -c out/kmip2pkcs11/someotherhsm.toml --check-config
+cascade-hsm-bridge -c out/cascade-hsm-bridge/somehsm.toml --check-config
+cascade-hsm-bridge -c out/cascade-hsm-bridge/someotherhsm.toml --check-config
 ```
 
-# 4. Copy the kmip2pkcs11 configuration files to the proper location.
+# 4. Copy the cascade-hsm-bridge configuration files to the proper location.
 
 > [!NOTE]
-> This should be a location that the kmip2pkcs11 instances will have read access to.
+> This should be a location that the cascade-hsm-bridge instances will have read access to.
 
 E.g.
 ```sh
-sudo cp out/kmip2pkcs11/*.toml /etc/kmip2pkcs11/
+sudo cp out/cascade-hsm-bridge/*.toml /etc/cascade-hsm-bridge/
 ```
 
-# 5. Create additional kmip2pkcs11 systemd units.
+# 5. Create additional cascade-hsm-bridge systemd units.
 
-If using systemd to control kmip2pkcs11 you will need to create separate kmip2pkcs11 units for each of the following kmip2pkcs11 configuration files.
-Each systemd kmip2pkcs11 unit should invoke kmi2pkcs11 with `--config` specifying its own kmi2pkcs11 configuration file.
+If using systemd to control cascade-hsm-bridge you will need to create separate cascade-hsm-bridge units for each of the following cascade-hsm-bridge configuration files.
+Each systemd cascade-hsm-bridge unit should invoke kmi2pkcs11 with `--config` specifying its own kmi2pkcs11 configuration file.
 
-  - `/etc/kmip2pkcs11/somehsm.toml`
-  - `/etc/kmip2pkcs11/someotherhsm.toml`
+  - `/etc/cascade-hsm-bridge/somehsm.toml`
+  - `/etc/cascade-hsm-bridge/someotherhsm.toml`
 
 # 6. Stop OpenDNSSEC.
 
@@ -86,14 +86,14 @@ E.g.
 sudo ods-control stop
 ```
 
-# 7. Start kmip2pkcs11 once for each HSM to be connected to.
+# 7. Start cascade-hsm-bridge once for each HSM to be connected to.
 
-If using systemd to control kmip2pkcs11, start each of the kmip2pkcs11 units that you created above.
+If using systemd to control cascade-hsm-bridge, start each of the cascade-hsm-bridge units that you created above.
 Otherwise:
 E.g.
 ```sh
-sudo kmip2pkcs11 -c /etc/kmip2pkcs11/somehsm.toml
-sudo kmip2pkcs11 -c /etc/kmip2pkcs11/someotherhsm.toml
+sudo cascade-hsm-bridge -c /etc/cascade-hsm-bridge/somehsm.toml
+sudo cascade-hsm-bridge -c /etc/cascade-hsm-bridge/someotherhsm.toml
 ```
 
 # 8. Validate your Cascade configuration.

@@ -20,7 +20,7 @@
       <RetireSafety>PT3600S</RetireSafety>
       <PublishSafety>PT3600S</PublishSafety>
       <KSK>
-        <Algorithm length="2048">8</Algorithm>
+        <Algorithm length="2047">8</Algorithm>
         <Lifetime>P1Y</Lifetime>
         <Repository>somehsm</Repository>
       </KSK>
@@ -30,7 +30,7 @@
         <Repository>somehsm</Repository>
       </KSK>
       <ZSK>
-        <Algorithm length="2048">8</Algorithm>
+        <Algorithm length="2047">8</Algorithm>
         <Lifetime>P1Y</Lifetime>
         <Repository>somehsm</Repository>
       </ZSK>
