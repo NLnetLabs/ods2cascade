@@ -155,7 +155,7 @@ impl Migrator {
         println!();
 
         let dbg_dir = format!("{output_dir_path}/debug");
-        let k2p_dir = format!("{output_dir_path}/cascade-hsm-bridge");
+        let chb_dir = format!("{output_dir_path}/cascade-hsm-bridge");
 
         println!("Loading {c_conf_toml_path}...");
         let toml = io.read_to_string(c_conf_toml_path)?;
@@ -500,7 +500,7 @@ impl Migrator {
 
         io.create_dir(output_dir_path)?;
         io.create_dir(&dbg_dir)?;
-        io.create_dir(&k2p_dir)?;
+        io.create_dir(&chb_dir)?;
 
         io.dbg_to_file(&c_conf, "cascade_conf", &dbg_dir)?;
         io.dbg_to_file(&o_conf, "ods_conf", &dbg_dir)?;
@@ -519,12 +519,12 @@ impl Migrator {
         )?;
 
         // Generate cascade-hsm-bridge configuration fragments.
-        let mut k2p_conf_paths = vec![];
+        let mut chb_conf_paths = vec![];
         for o_repo in &o_conf.repository_list.repositories {
             let lib_path = PathBuf::from_str(&o_repo.module)
                 .map_err(|err| anyhow!("Invalid PKCS#11 module path '{}': {err}", o_repo.module))?;
             let hsm_name = sanitize_filename::sanitize(&o_repo.name);
-            let out_path = format!("{k2p_dir}/{hsm_name}.toml");
+            let out_path = format!("{chb_dir}/{hsm_name}.toml");
             println!("Generating '{out_path}'...");
 
             let mut daemon = cascade_hsm_bridge_cfg::v1::DaemonConfig::default();
@@ -559,7 +559,7 @@ impl Migrator {
             let toml = toml::to_string_pretty(&cascade_hsm_bridge_conf)?;
             let mut out_file = io.create(&out_path)?;
             out_file.write_all(toml.as_bytes())?;
-            k2p_conf_paths.push(out_path);
+            chb_conf_paths.push(out_path);
         }
 
         // Note: zone_list is the old way of managing zones, more recent versions
@@ -909,9 +909,9 @@ impl Migrator {
                 conf: &c_conf,
                 conf_toml_path: c_conf_toml_path,
             },
-            kmip2pkcs11: GenerateReadmeCascadeHsmBridgeConfig {
-                output_dir: &k2p_dir,
-                conf_paths: &k2p_conf_paths,
+            cascade_hsm_bridge: GenerateReadmeCascadeHsmBridgeConfig {
+                output_dir: &chb_dir,
+                conf_paths: &chb_conf_paths,
             },
             opendnssec: GenerateReadmeOpenDnssecConfig {
                 conf: &o_conf,
@@ -1121,13 +1121,13 @@ impl Migrator {
         }
 
         p.next_step()?;
-        let have_multiple_k2p_configs = cfg.kmip2pkcs11.conf_paths.len() > 1;
+        let have_multiple_k2p_configs = cfg.cascade_hsm_bridge.conf_paths.len() > 1;
         let plural = if have_multiple_k2p_configs { "s" } else { "" };
         p.println(format!(
             "Validate your cascade-hsm-bridge configuration file{plural}."
         ))?;
         let mut validate_cmds = String::new();
-        for k2p_conf_path in cfg.kmip2pkcs11.conf_paths.iter() {
+        for k2p_conf_path in cfg.cascade_hsm_bridge.conf_paths.iter() {
             // Sudo is not required here as the config file was written by the
             // current user.
             use std::fmt::Write;
@@ -1160,7 +1160,7 @@ impl Migrator {
             "sh",
             format!(
                 "sudo cp {}/*.toml /etc/cascade-hsm-bridge/",
-                cfg.kmip2pkcs11.output_dir
+                cfg.cascade_hsm_bridge.output_dir
             ),
         )?;
 
@@ -1171,7 +1171,7 @@ impl Migrator {
                 If using systemd to control cascade-hsm-bridge you will need to create separate cascade-hsm-bridge units for each of the following cascade-hsm-bridge configuration files.
                 Each systemd cascade-hsm-bridge unit should invoke kmi2pkcs11 with `--config` specifying its own kmi2pkcs11 configuration file.
             "})?;
-            for k2p_conf_path in cfg.kmip2pkcs11.conf_paths {
+            for k2p_conf_path in cfg.cascade_hsm_bridge.conf_paths {
                 let file_name = Path::new(&k2p_conf_path).file_name().unwrap();
                 p.println(format!(
                     "  - `/etc/cascade-hsm-bridge/{}`",
@@ -1199,7 +1199,7 @@ impl Migrator {
         }
         p.println("Otherwise:")?;
         let mut start_cmds = String::new();
-        for k2p_conf_path in cfg.kmip2pkcs11.conf_paths {
+        for k2p_conf_path in cfg.cascade_hsm_bridge.conf_paths {
             let file_name = Path::new(&k2p_conf_path).file_name().unwrap();
             use std::fmt::Write;
             writeln!(
@@ -1338,7 +1338,7 @@ impl MarkdownWriter {
 
 struct GenerateReadmeConfig<'a> {
     cascade: GenerateReadmeCascadeConfig<'a>,
-    kmip2pkcs11: GenerateReadmeCascadeHsmBridgeConfig<'a>,
+    cascade_hsm_bridge: GenerateReadmeCascadeHsmBridgeConfig<'a>,
     opendnssec: GenerateReadmeOpenDnssecConfig<'a>,
     output_dir_path: &'a str,
     cmd_file_path: &'a str,
