@@ -20,7 +20,7 @@ Released yyyy-mm-dd.
 
 ### New
 
-- Detect unsupported policy settings and warn/abort. ([#44] by @ximon18)
+- Detect unsupported policy settings and warn/abort. ([#44] and [#46] by @ximon18)
 - Add `--force` option. ([#45] by @ximon18)
 
 ### Bug fixes
@@ -35,5 +35,6 @@ Released yyyy-mm-dd.
 
 [#44]: https://github.com/NLnetLabs/ods2cascade/pull/44
 [#45]: https://github.com/NLnetLabs/ods2cascade/pull/45
+[#46]: https://github.com/NLnetLabs/ods2cascade/pull/46
 [#49]: https://github.com/NLnetLabs/ods2cascade/pull/49
 [#56]: https://github.com/NLnetLabs/ods2cascade/pull/56
