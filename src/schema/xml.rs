@@ -475,7 +475,7 @@ pub mod kasp {
     //     pub manual_rollover: Option<()>,
     // }
 
-    #[derive(Debug, Deserialize)]
+    #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
     #[serde(rename_all = "PascalCase")]
     pub struct Algorithm {
         #[serde(rename = "@length")]

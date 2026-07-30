@@ -23,9 +23,7 @@ Note that there may still be tasks remaining after migration that are specific t
 ## Important differences with Cascade compared to OpenDNSSEC
 
 > [!WARNING]
-> One or more of your OpenDNSSEC configuration settings is unsupported by or handled differently by Cascade:
 > - Signed zones will NOT be written to disk. Cascade only supports publication of signed zones via XFR. You will need a secondary nameserver or some other tool receive/fetch new signed zone versions via XFR.
-> - Cascade implements incremental signing differently than OpenDNSSEC and as such neither needs nor supports the OpenDNSSEC jitter functionality. Jitter settings will be ignored.
 > - Cascade handles key state changes differently than OpenDNSSEC and as such specified non-zero <RetireSafety> periods will be ignored.
 > - Cascade handles key state changes differently than OpenDNSSEC and as such specified non-zero <PublishSafety> periods will be ignored.
 
@@ -51,21 +49,21 @@ servers = ["0.0.0.0:53"]
 Or use some other tool to retrieve signed zones via XFR and write them to disk.
 This is needed because your OpenDNSSEC instance writes signed zones to disk which Cascade is not yet able to do.
 
-# 3. Validate your cascade-hsm-bridge configuration file.
+# 3. Validate your kmip2pkcs11 configuration file.
 
 E.g.
 ```sh
-cascade-hsm-bridge -c out/cascade-hsm-bridge/somehsm.toml --check-config
+kmip2pkcs11 -c out/kmip2pkcs11/somehsm.toml --check-config
 ```
 
-# 4. Copy the cascade-hsm-bridge configuration file to the proper location.
+# 4. Copy the kmip2pkcs11 configuration file to the proper location.
 
 > [!NOTE]
-> This should be a location that the cascade-hsm-bridge instance will have read access to.
+> This should be a location that the kmip2pkcs11 instance will have read access to.
 
 E.g.
 ```sh
-sudo cp out/cascade-hsm-bridge/*.toml /etc/cascade-hsm-bridge/
+sudo cp out/kmip2pkcs11/*.toml /etc/kmip2pkcs11/
 ```
 
 # 5. Stop OpenDNSSEC.
@@ -78,17 +76,17 @@ E.g.
 sudo ods-control stop
 ```
 
-# 6. Start cascade-hsm-bridge.
+# 6. Start kmip2pkcs11.
 
 If using systemd:
 E.g.
 ```sh
-sudo systemctl start cascade-hsm-bridge
+sudo systemctl start kmip2pkcs11
 ```
 Otherwise:
 E.g.
 ```sh
-sudo cascade-hsm-bridge -c /etc/cascade-hsm-bridge/somehsm.toml
+sudo kmip2pkcs11 -c /etc/kmip2pkcs11/somehsm.toml
 ```
 
 # 7. Validate your Cascade configuration.

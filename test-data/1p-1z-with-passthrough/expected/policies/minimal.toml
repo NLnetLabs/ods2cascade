@@ -1,13 +1,11 @@
 version = "v1"
 
 [loader.review]
-mode = "off"
+required = false
 
 [key-manager]
 ds-algorithm = "SHA-256"
 auto-remove = false
-auto-remove-delay = 0
-publication-nameservers = []
 
 [key-manager.ksk]
 validity = "forever"
@@ -50,24 +48,22 @@ signature-lifetime = 1209600
 signature-remain-time = 259200
 
 [key-manager.generation]
-hsm-server-id = "someotherhsm"
+hsm-server-id = "somehsm"
 use-csk = true
 algorithm = "RSASHA256"
 
 [signer]
 serial-policy = "unix-time"
-signature-inception-offset = 3600
-signature-lifetime = 1209600
-signature-remain-time = 259200
-signature-refresh-interval = 43200
-key-roll-time = 86400
+signature-inception-offset = 0
+signature-lifetime = 0
+signature-remain-time = 0
 
 [signer.denial]
 type = "nsec"
 
 [signer.review]
-mode = "off"
+required = false
 
 [server.outbound]
-provide-xfr-to = []
+accept-xfr-requests-from = []
 send-notify-to = []
