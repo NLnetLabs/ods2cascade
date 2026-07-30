@@ -1158,7 +1158,10 @@ impl Migrator {
         // TODO: Should the copied files be chown'd to the cascade-hsm-bridge user?
         p.code_block(
             "sh",
-            format!("sudo cp {k2p_dir}/*.toml /etc/cascade-hsm-bridge/"),
+            format!(
+                "sudo cp {}/*.toml /etc/cascade-hsm-bridge/",
+                cfg.kmip2pkcs11.output_dir
+            ),
         )?;
 
         if have_multiple_k2p_configs {
@@ -1232,7 +1235,7 @@ impl Migrator {
         p.println("Execute the generated commands to configure Cascade.")?;
         p.warning(format!("This step will cause zones to be added and signed. If you have a lot of zones or very large zones this could use a lot of CPU and/or memory. Please review the commands in `{}` before executing the script.", cfg.cmd_file_path))?;
         p.println("")?;
-        p.code_block("sh", format!("sh -ex {cmd_file_path}"))?;
+        p.code_block("sh", format!("sh -ex {}", cfg.cmd_file_path))?;
 
         #[cfg(not(test))]
         if matches!(db_conn, DbConn::MySQL(_)) {
