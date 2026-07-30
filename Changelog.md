@@ -18,6 +18,11 @@ Released yyyy-mm-dd.
 
 Released yyyy-mm-dd.
 
+### New
+
+- Detect unsupported policy settings and warn/abort. ([#44] by @ximon18)
+- Add `--force` option. ([#45] by @ximon18)
+
 ### Bug fixes
 
 - Fix broken MySQL connectivity. ([#49] by @ximon18)
@@ -28,5 +33,7 @@ Released yyyy-mm-dd.
 - Update to Cascade v0.1.0-beta4 policy file format. (by @ximon18)
 - More renaming of kmip2pkcs11 to cascade-hsm-bridge. ([#56] by @ximon18)
 
+[#44]: https://github.com/NLnetLabs/ods2cascade/pull/44
+[#45]: https://github.com/NLnetLabs/ods2cascade/pull/45
 [#49]: https://github.com/NLnetLabs/ods2cascade/pull/49
 [#56]: https://github.com/NLnetLabs/ods2cascade/pull/56
