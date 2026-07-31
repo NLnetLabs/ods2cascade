@@ -25,15 +25,20 @@ Released yyyy-mm-dd.
 
 ### Bug fixes
 
+- Fix broken MySQL connectivity. ([#49] by @ximon18)
 - "Error: missing field @length". ([#61] by @ximon18, reported in [#59] by
   @bortzmeyer)
-- Fix broken MySQL connectivity. ([#49] by @ximon18)
+- "Wrong algorithm determined for algorithm number 14". ([#63] by @ximon18)
 
 ### Other changes
 
 - Add the git commit hash to the version output. (by @ximon18)
 - Update to Cascade v0.1.0-beta4 policy file format. (by @ximon18)
 - More renaming of kmip2pkcs11 to cascade-hsm-bridge. ([#56] by @ximon18)
+
+### Acknowledgements
+
+Thanks to @bortzmeyer for testing Ods2Cascade and providing valuable feedback!
 
 [#44]: https://github.com/NLnetLabs/ods2cascade/pull/44
 [#45]: https://github.com/NLnetLabs/ods2cascade/pull/45
@@ -42,3 +47,4 @@ Released yyyy-mm-dd.
 [#56]: https://github.com/NLnetLabs/ods2cascade/pull/56
 [#59]: https://github.com/NLnetLabs/ods2cascade/issues/59
 [#61]: https://github.com/NLnetLabs/ods2cascade/pull/61
+[#63]: https://github.com/NLnetLabs/ods2cascade/pull/63

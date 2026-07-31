@@ -52,7 +52,7 @@ signature-remain-time = 259200
 [key-manager.generation]
 hsm-server-id = "somehsm"
 use-csk = true
-algorithm = "RSASHA256"
+algorithm = "RSASHA512"
 
 [signer]
 serial-policy = "unix-time"
