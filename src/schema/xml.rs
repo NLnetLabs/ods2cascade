@@ -30,21 +30,14 @@ pub mod conf {
         pub token_label: String,
         #[serde(default, rename = "PIN")]
         pub pin: Option<String>,
-        #[serde(default = "Repository::default_capacity")]
-        pub capacity: usize,
+        #[serde(default)]
+        pub capacity: Option<usize>,
         #[serde(default)]
         pub require_backup: Option<()>,
         #[serde(default)]
         pub skip_public_key: Option<()>,
         #[serde(default)]
         pub allow_extraction: Option<()>,
-    }
-
-    impl Repository {
-        fn default_capacity() -> usize {
-            // INFINITE according to OpenDNSSEC conf.rnc
-            usize::MAX
-        }
     }
 
     #[derive(Debug, Deserialize)]
@@ -108,6 +101,8 @@ pub mod conf {
         #[serde(default)]
         pub delegation_signer_submit_command: Option<String>,
         #[serde(default)]
+        pub delegation_signer_retract_command: Option<String>,
+        #[serde(default)]
         pub pid_file: Option<String>,
         #[serde(default)]
         pub socket_file: Option<String>,
@@ -147,10 +142,10 @@ pub mod conf {
         pub privileges: Option<Privileges>,
         #[serde(default = "Signer::default_working_directory")]
         pub working_directory: String,
-        #[serde(default = "Signer::default_worker_threads")]
-        pub worker_threads: usize,
-        #[serde(default = "Signer::default_signer_threads")]
-        pub signer_threads: usize,
+        #[serde(default)]
+        pub worker_threads: Option<usize>,
+        #[serde(default)]
+        pub signer_threads: Option<usize>,
         #[serde(default)]
         pub listener: Listener,
         #[serde(default)]
@@ -162,23 +157,16 @@ pub mod conf {
             // From OpenDNSSEC conf.rc
             "$(localstatedir)/opendnssec/tmp".to_string()
         }
-
-        fn default_worker_threads() -> usize {
-            // From OpenDNSSEC conf.rnc
-            4
-        }
-
-        fn default_signer_threads() -> usize {
-            // From OpenDNSSEC conf.rnc
-            4
-        }
     }
 
     #[derive(Debug, Deserialize)]
     #[serde(rename_all = "PascalCase")]
     pub struct Privileges {
+        #[serde(default)]
         pub user: Option<String>,
+        #[serde(default)]
         pub group: Option<String>,
+        #[serde(default)]
         pub directory: Option<String>,
     }
 
@@ -475,7 +463,7 @@ pub mod kasp {
     //     pub manual_rollover: Option<()>,
     // }
 
-    #[derive(Debug, Deserialize)]
+    #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
     #[serde(rename_all = "PascalCase")]
     pub struct Algorithm {
         #[serde(rename = "@length")]

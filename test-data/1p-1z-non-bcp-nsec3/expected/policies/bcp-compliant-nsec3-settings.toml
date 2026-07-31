@@ -56,9 +56,9 @@ algorithm = "ECDSAP384SHA384"
 
 [signer]
 serial-policy = "unix-time"
-signature-inception-offset = 0
-signature-lifetime = 0
-signature-remain-time = 0
+signature-inception-offset = 3600
+signature-lifetime = 1209600
+signature-remain-time = 259200
 signature-refresh-interval = 43200
 key-roll-time = 86400
 

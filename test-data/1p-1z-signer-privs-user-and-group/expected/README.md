@@ -23,12 +23,13 @@ Note that there may still be tasks remaining after migration that are specific t
 ## Important differences with Cascade compared to OpenDNSSEC
 
 > [!WARNING]
+> One or more of your OpenDNSSEC configuration settings is unsupported by or handled differently by Cascade:
 > - Signed zones will NOT be written to disk. Cascade only supports publication of signed zones via XFR. You will need a secondary nameserver or some other tool receive/fetch new signed zone versions via XFR.
 > - Cascade implements incremental signing differently than OpenDNSSEC and as such neither needs nor supports the OpenDNSSEC jitter functionality. Jitter settings will be ignored.
-
+> - Cascade handles key state changes differently than OpenDNSSEC and as such specified non-zero <RetireSafety> periods will be ignored.
+> - Cascade handles key state changes differently than OpenDNSSEC and as such specified non-zero <PublishSafety> periods will be ignored.
 
 ## Migration steps
-
 
 > [!WARNING]
 > The commands shown below are examples only and require your review and may need adjusting for your setup.

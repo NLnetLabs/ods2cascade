@@ -3,7 +3,7 @@
 	<RepositoryList>
 		<Repository name="somehsm">
   		<Module>/path/to/some/pkcs11/module.so</Module>
-		<TokenLabel>OpenDNSSEC</TokenLabel>
+      <TokenLabel>OpenDNSSEC</TokenLabel>
   		<PIN>1234</PIN>
 		</Repository>
 	</RepositoryList>
@@ -14,6 +14,7 @@
 	</Common>
 
 	<Enforcer>
+		<AutomaticKeyGenerationPeriod>P0D</AutomaticKeyGenerationPeriod>
 		<Datastore><Test>db.ron</Test></Datastore>
 		<!-- Set an empty working directory to override the default /var/opendnssec/tmp -->
 		<WorkingDirectory/>

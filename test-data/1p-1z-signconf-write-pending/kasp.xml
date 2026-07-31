@@ -4,7 +4,7 @@
     <Description>A minimal policy</Description>
     
     <Signatures>
-      <Resign>PT2H</Resign>
+      <Resign>PT0H</Resign>
 			<Refresh>P3D</Refresh>
 			<Validity>
 				<Default>P14D</Default>

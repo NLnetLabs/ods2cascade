@@ -3,7 +3,7 @@
   <Policy name="bcp-compliant-nsec3-settings">
     <Description>A policy with NSEC3 settings conforming to BCP 236/RFC 9276</Description>
     <Signatures>
-      <Resign>PT2H</Resign>
+      <Resign>PT0H</Resign>
       <Refresh>P3D</Refresh>
       <Validity>
         <Default>P14D</Default>
@@ -14,7 +14,7 @@
     </Signatures>
     <Denial>
       <NSEC3>
-        <Resalt>PT1D</Resalt>
+        <Resalt>P0D</Resalt>
         <Hash>
           <Algorithm>8</Algorithm>
           <Iterations>0</Iterations>
@@ -55,7 +55,7 @@
   <Policy name="too-many-nsec3-iterations">
     <Description>A policy with NSEC3 settings that violate BCP 236/RFC 9276 by having non-zero iterations</Description>
     <Signatures>
-      <Resign>PT2H</Resign>
+      <Resign>PT0H</Resign>
       <Refresh>P3D</Refresh>
       <Validity>
         <Default>P14D</Default>
@@ -66,7 +66,7 @@
     </Signatures>
     <Denial>
       <NSEC3>
-        <Resalt>PT1D</Resalt>
+        <Resalt>P0D</Resalt>
         <Hash>
           <Algorithm>8</Algorithm>
           <Iterations>5</Iterations>
@@ -107,7 +107,7 @@
   <Policy name="non-empty-nsec3-salt">
     <Description>A policy with NSEC3 settings that violate BCP 236/RFC 9276 by having non-empty salt</Description>
     <Signatures>
-      <Resign>PT2H</Resign>
+      <Resign>PT0H</Resign>
       <Refresh>P3D</Refresh>
       <Validity>
         <Default>P14D</Default>
@@ -118,7 +118,7 @@
     </Signatures>
     <Denial>
       <NSEC3>
-        <Resalt>PT1D</Resalt>
+        <Resalt>P0D</Resalt>
         <Hash>
           <Algorithm>8</Algorithm>
           <Iterations>0</Iterations>
