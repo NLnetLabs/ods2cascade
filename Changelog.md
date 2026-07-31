@@ -25,6 +25,8 @@ Released yyyy-mm-dd.
 
 ### Bug fixes
 
+- "Error: missing field @length". ([#61] by @ximon18, reported in [#59] by
+  @bortzmeyer)
 - Fix broken MySQL connectivity. ([#49] by @ximon18)
 
 ### Other changes
@@ -38,3 +40,5 @@ Released yyyy-mm-dd.
 [#46]: https://github.com/NLnetLabs/ods2cascade/pull/46
 [#49]: https://github.com/NLnetLabs/ods2cascade/pull/49
 [#56]: https://github.com/NLnetLabs/ods2cascade/pull/56
+[#59]: https://github.com/NLnetLabs/ods2cascade/issues/59
+[#61]: https://github.com/NLnetLabs/ods2cascade/pull/61
