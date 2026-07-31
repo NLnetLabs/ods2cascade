@@ -14,11 +14,11 @@ use std::{
 
 use anyhow::{anyhow, bail};
 use cascade_hsm_bridge_cfg::daemonbase::process::{GroupId, UserId};
-use cascaded::config::file::Spec;
 use cascaded::policy::{
     AutoConfig, DsAlgorithm, NameserverCommsPolicy, OutboundPolicy, Policy, ReviewPolicy,
     ServerPolicy, SignerDenialPolicy, SignerPolicy, SignerSerialPolicy,
 };
+use cascaded::{config::file::Spec, policy::KeyParameters};
 use domain::base::Ttl;
 use quick_xml::DeError;
 use schema::xml::addns::{Adapter, Outbound};
@@ -34,6 +34,7 @@ use crate::schema::xml::conf::{Host, Mysql};
 use crate::schema::xml::{
     common::{DenialEnum, SerialEnum},
     conf::DatastoreEnum,
+    kasp::{KskRollType, ZskRollType},
     signconf::SignerConfiguration,
 };
 use crate::{
@@ -44,23 +45,29 @@ use crate::{
 #[tokio::main]
 async fn main() {
     // Poor mans CLI argument parsing. We don't need Clap (yet).
-    if let Some(true) = std::env::args()
-        .nth(1)
-        .map(|arg| arg == "--version" || arg == "-V")
-    {
+    let mut args = std::env::args().collect::<Vec<_>>();
+    let prog_name = args.remove(0);
+
+    if let Some(true) = args.first().map(|arg| arg == "--version" || arg == "-V") {
         println!("{}", env!("ODS2CASCADE_BUILD_VERSION"));
         std::process::exit(0);
     }
 
-    let mut args = std::env::args();
-    let prog_name = args.next().unwrap();
+    let mut force = ForceMode::Disabled;
+    if let Some(idx) = args.iter().position(|arg| arg == "--force" || arg == "-f") {
+        force = ForceMode::Enabled;
+        args.remove(idx);
+    }
 
-    if args.len() != 3 || args.any(|arg| arg == "--help" || arg == "-h") {
+    if args.len() != 3 || args.iter().any(|arg| arg == "--help" || arg == "-h") {
         println!(
             "Usage: {prog_name} [OPTIONS] <path/to/cascade.toml> <path/to/opendnssec/conf.xml> <path/to/write/files/to>"
         );
         println!();
         println!("Options:");
+        println!(
+            "  -f, --force    Ignore configuration issues or Cascade lack of support for settings where possible"
+        );
         println!("  -h, --help     Print help");
         println!("  -V, --version  Print version");
         println!();
@@ -70,23 +77,23 @@ async fn main() {
         std::process::exit(1);
     }
 
-    let mut args = std::env::args();
-    let _prog_name = args.next().unwrap();
-    let c_conf_toml_path = args.next().unwrap();
-    let o_conf_xml_path = args.next().unwrap();
-    let output_dir_path = args.next().unwrap();
+    #[allow(clippy::get_first)]
+    let c_conf_toml_path = args.get(0).unwrap();
+    let o_conf_xml_path = args.get(1).unwrap();
+    let output_dir_path = args.get(2).unwrap();
 
     println!("ods2cascade version {}", env!("ODS2CASCADE_BUILD_VERSION"));
 
     if let Err(err) = Migrator::migrate(
-        &c_conf_toml_path,
-        &o_conf_xml_path,
-        &output_dir_path,
+        c_conf_toml_path,
+        o_conf_xml_path,
+        output_dir_path,
+        force,
         &Fs::new(),
     )
     .await
     {
-        eprintln!("Error: {err}");
+        eprintln!("ERROR: {err}");
         std::process::exit(1);
     }
 }
@@ -95,7 +102,7 @@ async fn main() {
 enum MigrateError {
     KaspPolicySetIsEmpty,
     OnlyUnusedKaspPoliciesFound,
-    RepositoryWithoutPinNotYetSupported(String),
+    NotYetSupportedByCascade(Vec<String>),
     InconsistentState(String),
     OutdatedState(String),
 }
@@ -108,9 +115,9 @@ impl std::fmt::Display for MigrateError {
             }
             MigrateError::OnlyUnusedKaspPoliciesFound => {
                 f.write_str("None of the found OpenDNSSEC KASP policies appear to be in use, nothing to migrate.")
-            },
-            MigrateError::RepositoryWithoutPinNotYetSupported(o_repo_name) => {
-                write!(f, "HSM repository '{o_repo_name}' lacks a <PIN/>, which is not yet supported by Cascade.")
+            }
+            MigrateError::NotYetSupportedByCascade(features) => {
+                write!(f, "This version of ods2cascade is not aware of support for the following features in Cascade. Upgrade to a newer version of ods2cascade if available. Unsupported features:\n  - {}", features.join("\n  - "))
             }
             MigrateError::InconsistentState(err) => write!(f, "Inconsistent state: {err}"),
             MigrateError::OutdatedState(err) => write!(f, "Outdated state: {err}"),
@@ -122,11 +129,46 @@ impl std::error::Error for MigrateError {}
 
 struct Migrator;
 
+#[derive(Clone, Copy, Debug, Default)]
+enum ForceMode {
+    /// Potential problems will cause the migration to be aborted.
+    #[default]
+    Disabled,
+
+    /// Tolerate potential problems and warn about this mode of operation.
+    Enabled,
+
+    /// Tolerate potential problems but do NOT warn about this mode of operation.
+    ///
+    /// This setting is for use by tests so that only one copy of expected output
+    /// is needed rather than one copy with the warning and one copy without when
+    /// testing force enabled vs force disabled.
+    #[cfg(test)]
+    Testing,
+}
+impl ForceMode {
+    fn is_enabled(&self) -> bool {
+        match self {
+            ForceMode::Disabled => false,
+            ForceMode::Enabled => true,
+            #[cfg(test)]
+            ForceMode::Testing => true,
+        }
+    }
+}
+
+impl std::fmt::Display for ForceMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.is_enabled())
+    }
+}
+
 impl Migrator {
     async fn migrate<IO: FsOps>(
         c_conf_toml_path: &str,
         o_conf_xml_path: &str,
         output_dir_path: &str,
+        force: ForceMode,
         io: &IO,
     ) -> anyhow::Result<()> {
         println!("Welcome to ods2cascade.");
@@ -143,6 +185,7 @@ impl Migrator {
         println!("  - OpenDNSSEC config file: {o_conf_xml_path}");
         println!("  - Cascade config file   : {c_conf_toml_path}");
         println!("  - Output directory      : {output_dir_path}");
+        println!("  - Force mode enabled    : {force}");
         println!();
 
         if io.exists(output_dir_path)? {
@@ -156,7 +199,7 @@ impl Migrator {
         println!();
 
         let dbg_dir = format!("{output_dir_path}/debug");
-        let k2p_dir = format!("{output_dir_path}/cascade-hsm-bridge");
+        let chb_dir = format!("{output_dir_path}/cascade-hsm-bridge");
 
         println!("Loading {c_conf_toml_path}...");
         let toml = io.read_to_string(c_conf_toml_path)?;
@@ -164,31 +207,79 @@ impl Migrator {
         let mut c_conf = cascaded::config::Config::default();
         c_conf_spec.parse_into(&mut c_conf);
         let c_pol_dir = c_conf.policy_dir.clone();
-        let c_remote_control_server =
-            c_conf.remote_control.servers.first().ok_or_else(|| {
-                anyhow!("Cascade config file should define a remote-control server.")
-            })?;
-        let c_cli_args = format!(
-            "--server {}:{}",
-            c_remote_control_server.ip(),
-            c_remote_control_server.port()
-        );
+
+        let mut c_cli_args = String::new();
+        if let Some(c_remote_control_server) = c_conf.remote_control.servers.first() {
+            c_cli_args = format!(
+                "--server {}:{}",
+                c_remote_control_server.ip(),
+                c_remote_control_server.port()
+            );
+        } else if !force.is_enabled() {
+            bail!("Cascade config file should define a remote-control server.");
+        }
 
         println!("Loading {o_conf_xml_path}...");
         let xml = io.read_to_string(o_conf_xml_path)?;
         let o_conf: Configuration = process_xml(&xml)?;
+        let mut errors = Vec::<String>::new();
 
-        // Check for HSM repositories without a PIN, which Cascade doesn't yet
-        // support.
-        if let Some(o_repo) = o_conf
-            .repository_list
-            .repositories
-            .iter()
-            .find(|r| r.pin.is_none())
+        if o_conf.enforcer.manual_key_generation.is_some() {
+            errors.push("<ManualKeyGeneration/>".into());
+        }
+        if parse_ods_ts(&o_conf.enforcer.automatic_key_generation_period) > 0 {
+            errors.push("<AutomaticKeyGenerationPeriod/>".into());
+        }
+        if o_conf.enforcer.delegation_signer_submit_command.is_some() {
+            errors.push("<DelegationSignerSubmitCommand/>".into());
+        }
+        if o_conf.enforcer.delegation_signer_retract_command.is_some() {
+            errors.push("<DelegationSignerRetractCommand/>".into());
+        }
+        if o_conf
+            .signer
+            .as_ref()
+            .and_then(|s| s.notify_command.as_ref())
+            .is_some()
         {
-            return Err(
-                MigrateError::RepositoryWithoutPinNotYetSupported(o_repo.name.clone()).into(),
-            );
+            errors.push("<NotifyCommand/>".into());
+        }
+        if o_conf
+            .signer
+            .as_ref()
+            .and_then(|s| s.privileges.as_ref())
+            .and_then(|p| p.directory.as_ref())
+            .is_some()
+        {
+            errors.push("<Signer><Privileges><Directory>".into());
+        }
+
+        // Check for HSM configuration issues.
+        for o_repo in &o_conf.repository_list.repositories {
+            if o_repo.pin.is_none() {
+                errors.push(format!(
+                    "Missing <PIN/> in ODS HSM repository '{}'",
+                    o_repo.name
+                ));
+            }
+            if o_repo.capacity.is_some() {
+                errors.push(format!(
+                    "<Capacity/> in ODS HSM repository '{}'",
+                    o_repo.name
+                ));
+            }
+            if o_repo.skip_public_key.is_some() {
+                errors.push(format!(
+                    "<SkipPublicKey/> in ODS HSM repository '{}'",
+                    o_repo.name
+                ));
+            }
+            if o_repo.allow_extraction.is_some() {
+                errors.push(format!(
+                    "<AllowExtraction/> in ODS HSM repository '{}'",
+                    o_repo.name
+                ));
+            }
         }
 
         println!("Loading {}...", o_conf.common.policy_file);
@@ -197,6 +288,128 @@ impl Migrator {
 
         if o_kasps.policies.is_empty() {
             return Err(MigrateError::KaspPolicySetIsEmpty.into());
+        }
+
+        // Check for unsupported policy settings.
+        for o_kasp in &o_kasps.policies {
+            let o_kasp_name = &o_kasp.name;
+            if o_kasp.passthrough.is_some() {
+                errors.push(format!("<Passthrough/> in ODS KASP policy '{o_kasp_name}'"));
+            }
+            if parse_ods_ts(&o_kasp.signatures.resign) > 0 {
+                errors.push(format!(
+                    "<Resign/> aka incremental signing in ODS KASP policy '{o_kasp_name}'"
+                ));
+            }
+            if o_kasp.keys.share_keys.is_some() {
+                errors.push(format!("<ShareKeys/> in ODS KASP policy '{o_kasp_name}'"));
+            }
+            if matches!(&o_kasp.keys.purge, Some(d) if parse_ods_ts(d) > 0) {
+                errors.push(format!(
+                    "<Purge> duration larger than zero in ODS KASP policy '{o_kasp_name}'"
+                ));
+            }
+
+            let mut key_alg = None;
+            for ksk in &o_kasp.keys.ksks {
+                if key_alg.is_none() {
+                    key_alg = Some(ksk.algorithm.clone());
+                } else if let Some(key_alg) = &key_alg
+                    && key_alg != &ksk.algorithm
+                {
+                    errors.push(format!(
+                        "Mixed key algorithms in ODS KASP policy '{o_kasp_name}': {} (len {}) != {} (len {})",
+                        key_alg.value, key_alg.length, ksk.algorithm.value, ksk.algorithm.length
+                    ));
+                }
+                if ksk.standby.is_some() {
+                    errors.push(format!(
+                        "<Standby/> for KSK in ODS KASP policy '{o_kasp_name}'"
+                    ));
+                }
+                if ksk.rfc5011.is_some() {
+                    errors.push(format!(
+                        "<RFC5011/> for KSK in ODS KASP policy '{o_kasp_name}"
+                    ));
+                }
+                match &ksk.ksk_roll_type {
+                    None | Some(KskRollType::KskDoubleSignature) => { /* Supported */ }
+                    Some(typ) => {
+                        errors.push(format!(
+                            "<KskRollType> {typ:?} for KSK in ODS KASP policy '{o_kasp_name}'"
+                        ));
+                    }
+                }
+            }
+
+            for zsk in &o_kasp.keys.zsks {
+                if key_alg.is_none() {
+                    key_alg = Some(zsk.algorithm.clone());
+                } else if let Some(key_alg) = &key_alg
+                    && key_alg != &zsk.algorithm
+                {
+                    errors.push(format!(
+                        "Mixed key algorithms in ODS KASP policy '{o_kasp_name}': {} (len {}) != {} (len {})",
+                        key_alg.value, key_alg.length, zsk.algorithm.value, zsk.algorithm.length
+                    ));
+                }
+                if zsk.standby.is_some() {
+                    errors.push(format!(
+                        "<Standby/> for ZSK in ODS KASP policy '{o_kasp_name}'"
+                    ));
+                }
+                match &zsk.zsk_roll_type {
+                    None | Some(ZskRollType::ZskPrePublication) => { /* Supported */ }
+                    Some(typ) => {
+                        errors.push(format!(
+                            "<ZskRollType/>{typ:?} for ZSK in ODS KASP policy '{o_kasp_name}'"
+                        ));
+                    }
+                }
+            }
+
+            for csk in &o_kasp.keys.csks {
+                if key_alg.is_none() {
+                    key_alg = Some(csk.algorithm.clone());
+                } else if let Some(key_alg) = &key_alg
+                    && key_alg != &csk.algorithm
+                {
+                    errors.push(format!(
+                        "Mixed key algorithms in ODS KASP policy '{o_kasp_name}': {} (len {}) != {} (len {})",
+                        key_alg.value, key_alg.length, csk.algorithm.value, csk.algorithm.length
+                    ));
+                }
+                if csk.standby.is_some() {
+                    errors.push(format!(
+                        "<Standby/> for CSK in ODS KASP policy '{o_kasp_name}'"
+                    ));
+                }
+                if csk.rfc5011.is_some() {
+                    errors.push(format!(
+                        "<RFC5011/> for CSK in ODS KASP policy '{o_kasp_name}"
+                    ));
+                }
+                match &csk.csk_roll_type {
+                    None => { /* Supported */ }
+                    Some(typ) => {
+                        errors.push(format!(
+                            "<CskRollType> {typ:?} for CSK in ODS KASP policy '{o_kasp_name}'"
+                        ));
+                    }
+                }
+            }
+        }
+
+        if !errors.is_empty() {
+            if force.is_enabled() {
+                for error in &errors {
+                    eprintln!(
+                        "WARNING: Force mode enabled: Ignoring lack of support by Cascade for '{error}'."
+                    );
+                }
+            } else {
+                return Err(MigrateError::NotYetSupportedByCascade(errors).into());
+            }
         }
 
         let o_zones_path = PathBuf::from_str(&o_conf.enforcer.working_directory)?;
@@ -277,11 +490,62 @@ impl Migrator {
         // serves via XFR?
         let mut o_writes_signed_zones_to_disk = false;
 
-        // Does ODS use non-BCP 236/RFC 9276 NSEC3 salt or iteration settings?
-        let mut o_uses_non_bcp_nsec3_settings = false;
-
         // Does ODS use non-zero jitter?
         let mut o_uses_jitter = false;
+
+        // Does ODS use a non-default denial validity period?
+        let mut o_uses_non_default_denial_validity = false;
+
+        // Does ODS use a non zero NSEC3 TTL?
+        let mut o_uses_non_zero_nsec3_ttl = false;
+
+        // Does ODS uses NSEC3 re-salting?
+        let mut o_uses_nsec3_re_salting = false;
+
+        // Does ODS use a non-SHA1 NSEC3 hash algorithm?
+        let mut o_uses_non_sha1_nsec3_hash_alg = false;
+
+        // Does ODS use non BCP NSEC3 parameters?
+        let mut o_uses_non_bcp_nsec3_params = false;
+
+        // Does ODS restrict outbound XFR?
+        let mut o_restricts_outbound_xfr = false;
+
+        // Does ODS use TSIG keys to restrict inbound or outbound access?
+        let mut o_uses_tsig = false;
+
+        // Does ODS use safety margins?
+        let mut o_uses_retire_safety = false;
+        let mut o_uses_publish_safety = false;
+
+        // Does ODS use a syslog facility?
+        let o_uses_syslog_facility = if let Some(logging) = &o_conf.common.logging {
+            logging.syslog.is_some()
+        } else {
+            false
+        };
+
+        // Does ODS warn about rollovers ahead of time?
+        let o_uses_rollover_notifications = o_conf.enforcer.rollover_notification.is_some();
+
+        // Does ODS control the number of threads used?
+        let o_uses_thread_count = if let Some(signer) = &o_conf.signer
+            && (signer.worker_threads.is_some() || signer.signer_threads.is_some())
+        {
+            true
+        } else {
+            false
+        };
+
+        // Does at least one ODS policy define keys of the same algorithm
+        // but different length, and did we thus choose to use the strongest
+        // (longest) key length for generation of future keys?
+        let mut o_key_len_upgraded = false;
+
+        // Does at least one ODS policy define multiple keys of the same
+        // type (KSK, ZSK, CSK) and thus did we ignore keys (as Cascade only
+        // supports a single KSK/ZSK pair or a single CSK key per policy)?
+        let mut o_extra_keys_ignored = false;
 
         // So for each combination of ODS policy and zone output adapter we need
         // a different Cascade policy.
@@ -301,57 +565,79 @@ impl Migrator {
         // If there *is* an output addns.xml path, use the ODS policy name plus
         // a hash of the addns.xml path as the Cascade policy name.
         for o_zone in &o_zone_list.zones {
-            // TODO: Process the input adapter.
-
             // Process the output adapter, loading any addns.xml file referred
             // to and returning its path if one were specified.
             process_adapter(
-            &o_zone.adapters.output.adapter,
-            &mut o_adapter_by_addns_path,
-            io,
-        )?.and_then(|o_addns_path| {
-            // This zone has an ODS output adapter of type DNS with zone
-            // transfer settings defined via an addns.xml file. Confusingly
-            // the ODS addns.rnc XML schema file defines that the Outbound
-            // element is optional, but if not specified ODS will refuse XFR
-            // requests for the zone, but also won't have written the signed
-            // zone to a file, presumably making it useless to sign the zone.
-            if o_adapter_by_addns_path
-                .get(&o_addns_path)
-                .map(|adapter| &adapter.dns.outbound)
-                .is_none()
+                &o_zone.adapters.output.adapter,
+                &mut o_adapter_by_addns_path,
+                io,
+            )?.and_then(|o_addns_path| {
+                // This zone has an ODS output adapter of type DNS with zone
+                // transfer settings defined via an addns.xml file. Confusingly
+                // the ODS addns.rnc XML schema file defines that the Outbound
+                // element is optional, but if not specified ODS will refuse XFR
+                // requests for the zone, but also won't have written the signed
+                // zone to a file, presumably making it useless to sign the zone.
+                if let Some(adapter) = o_adapter_by_addns_path.get(&o_addns_path) {
+                    let Some(outbound) = &adapter.dns.outbound else
+                    {
+                        eprintln!("Zone '{}' will be ignored as it has output adapter type DNS but lacks an Outbound configuration and thus will never be written to disk or served via XFR.", o_zone.name);
+                        return None;
+                    };
+
+                    if outbound.provide_transfer.is_some() {
+                        o_restricts_outbound_xfr = true;
+                    }
+
+                    o_uses_tsig |= !adapter.dns.tsig.is_empty();
+                }
+
+                // Remember the mapping of zone name to output addns path.
+                o_addns_path_by_o_zone_name.insert(o_zone.name.clone(), o_addns_path.clone());
+
+                // This zone uses a DNS output adapter. Generate a hashed policy
+                // name for Cascade.
+                let o_pol_name = o_zone.policy.clone();
+                let mut hasher = std::hash::DefaultHasher::new();
+                o_addns_path.hash(&mut hasher);
+                let hash = hasher.finish().to_string();
+                let c_pol_name = sanitize_filename::sanitize(format!("{o_pol_name}-{hash}"));
+
+                // Remember the Cascade policy name for this combination of ODS
+                // policy name name and addns path.
+                let key = (o_pol_name, Some(o_addns_path));
+
+                c_pol_name_by_o_pol_name_plus_addns_path.insert(key, c_pol_name) //.clone())
+            })
+            .or_else(|| {
+                // This zone was NOT configured in ODS with zone transfer settings
+                // and so it must be written by ODS to disk when signed.
+                // Remember the Cascade policy name for this ODS policy name.
+                o_writes_signed_zones_to_disk = true;
+                let o_pol_name = o_zone.policy.clone();
+                let o_pol_name = sanitize_filename::sanitize(o_pol_name);
+                let key = (o_pol_name.clone(), None);
+                c_pol_name_by_o_pol_name_plus_addns_path.insert(key, o_pol_name)
+            });
+
+            // Process the input adapter, loading any addns.xml file referred
+            // to and returning its path if one were specified.
+            if let Some(o_addns_path) = process_adapter(
+                &o_zone.adapters.input.adapter,
+                &mut o_adapter_by_addns_path,
+                io,
+            )? && let Some(adapter) = o_adapter_by_addns_path.get(&o_addns_path)
             {
-                eprintln!("Zone '{}' will be ignored as it has output adapter type DNS but lacks an Outbound configuration and thus will never be written to disk or served via XFR.", o_zone.name);
-                return None;
+                o_uses_tsig |= !adapter.dns.tsig.is_empty();
             }
+        }
 
-            // Remember the mapping of zone name to output addns path.
-            o_addns_path_by_o_zone_name.insert(o_zone.name.clone(), o_addns_path.clone());
-
-            // This zone uses a DNS output adapter. Generate a hashed policy
-            // name for Cascade.
-            let o_pol_name = o_zone.policy.clone();
-            let mut hasher = std::hash::DefaultHasher::new();
-            o_addns_path.hash(&mut hasher);
-            let hash = hasher.finish().to_string();
-            let c_pol_name = sanitize_filename::sanitize(format!("{o_pol_name}-{hash}"));
-
-            // Remember the Cascade policy name for this combination of ODS
-            // policy name name and addns path.
-            let key = (o_pol_name, Some(o_addns_path));
-
-            c_pol_name_by_o_pol_name_plus_addns_path.insert(key, c_pol_name) //.clone())
-        })
-        .or_else(|| {
-            // This zone was NOT configured in ODS with zone transfer settings
-            // and so it must be written by ODS to disk when signed.
-            // Remember the Cascade policy name for this ODS policy name.
-            o_writes_signed_zones_to_disk = true;
-            let o_pol_name = o_zone.policy.clone();
-            let o_pol_name = sanitize_filename::sanitize(o_pol_name);
-            let key = (o_pol_name.clone(), None);
-            c_pol_name_by_o_pol_name_plus_addns_path.insert(key, o_pol_name)
-        });
+        if o_uses_tsig {
+            if force.is_enabled() {
+                eprintln!("Force mode enabled: Ignoring lack of support by Cascade for 'TSIG'");
+            } else {
+                return Err(MigrateError::NotYetSupportedByCascade(vec!["TSIG".into()]).into());
+            }
         }
 
         if c_pol_name_by_o_pol_name_plus_addns_path.is_empty() {
@@ -360,7 +646,7 @@ impl Migrator {
 
         io.create_dir(output_dir_path)?;
         io.create_dir(&dbg_dir)?;
-        io.create_dir(&k2p_dir)?;
+        io.create_dir(&chb_dir)?;
 
         io.dbg_to_file(&c_conf, "cascade_conf", &dbg_dir)?;
         io.dbg_to_file(&o_conf, "ods_conf", &dbg_dir)?;
@@ -379,12 +665,26 @@ impl Migrator {
         )?;
 
         // Generate cascade-hsm-bridge configuration fragments.
-        let mut k2p_conf_paths = vec![];
+        let mut chb_conf_paths = vec![];
         for o_repo in &o_conf.repository_list.repositories {
-            let lib_path = PathBuf::from_str(&o_repo.module)
-                .map_err(|err| anyhow!("Invalid PKCS#11 module path '{}': {err}", o_repo.module))?;
+            let lib_path = PathBuf::from_str(&o_repo.module);
+            let lib_path = match lib_path {
+                Ok(path) => path,
+                Err(err) if force.is_enabled() => {
+                    eprintln!(
+                        "Force mode enabled: Mapping invalid PKCS#11 module path '{}' to '/dev/null': {err}",
+                        o_repo.module
+                    );
+                    // We have to return something that is likely to be a
+                    // valid PathBuf as that is needed in Pkcs11Config below.
+                    PathBuf::from_str("/dev/null").unwrap()
+                }
+                Err(err) => {
+                    bail!("Invalid PKCS#11 module path '{}': {err}", o_repo.module);
+                }
+            };
             let hsm_name = sanitize_filename::sanitize(&o_repo.name);
-            let out_path = format!("{k2p_dir}/{hsm_name}.toml");
+            let out_path = format!("{chb_dir}/{hsm_name}.toml");
             println!("Generating '{out_path}'...");
 
             let mut daemon = cascade_hsm_bridge_cfg::v1::DaemonConfig::default();
@@ -399,11 +699,37 @@ impl Migrator {
                 ..
             }) = o_conf.signer.as_ref().and_then(|c| c.privileges.as_ref())
             {
-                let user_id = UserId::from_str(user)
-                    .map_err(|err| anyhow!("Invalid user id '{user}': {err}"))?;
+                let user_id = UserId::from_str(user);
+                let user_id = match user_id {
+                    Ok(user_id) => user_id,
+                    Err(err) if force.is_enabled() => {
+                        eprintln!(
+                            "Force mode enabled: Mapping invalid signer user ID '{user}' to root: {err}",
+                        );
+                        // We have to return something that is likely to be a
+                        // valid user as that is needed by daemon.identity..
+                        UserId::from_str("root").unwrap()
+                    }
+                    Err(err) => {
+                        bail!("Invalid signer user ID '{user}': {err}");
+                    }
+                };
                 let group = group.as_ref().unwrap_or(user);
-                let group_id = GroupId::from_str(group)
-                    .map_err(|err| anyhow!("Invalid group id '{group}': {err}"))?;
+                let group_id = GroupId::from_str(group);
+                let group_id = match group_id {
+                    Ok(group_id) => group_id,
+                    Err(err) if force.is_enabled() => {
+                        eprintln!(
+                            "Force mode enabled: Mapping invalid signer group ID '{group}' to root: {err}",
+                        );
+                        // We have to return something that is likely to be a
+                        // valid group as that is needed by daemon.identity..
+                        GroupId::from_str("root").unwrap()
+                    }
+                    Err(err) => {
+                        bail!("Invalid signer group ID '{group}': {err}");
+                    }
+                };
                 daemon.identity = Some((user_id, group_id));
             }
 
@@ -419,7 +745,7 @@ impl Migrator {
             let toml = toml::to_string_pretty(&cascade_hsm_bridge_conf)?;
             let mut out_file = io.create(&out_path)?;
             out_file.write_all(toml.as_bytes())?;
-            k2p_conf_paths.push(out_path);
+            chb_conf_paths.push(out_path);
         }
 
         // Note: zone_list is the old way of managing zones, more recent versions
@@ -508,17 +834,36 @@ impl Migrator {
                     .get(addns_path)
                     .and_then(|a| a.dns.outbound.as_ref())
             });
-            let c_pol = create_cascade_policy(kasp, o_adapter, hsm_server_id.clone())?;
+            let res = create_cascade_policy(kasp, o_adapter, hsm_server_id.clone())?;
+            let c_pol = res.0;
+            o_key_len_upgraded |= res.1;
+            o_extra_keys_ignored |= res.2;
             let out_path = format!("{output_dir_path}/policies/{c_pol_name}.toml");
 
-            if let DenialEnum::nsec3(nsec3) = &kasp.denial.denial {
-                o_uses_non_bcp_nsec3_settings |= nsec3.hash.iterations > 0
-                    || u8::from_str(&nsec3.hash.salt.length).unwrap() > 0
-                    || !nsec3.hash.salt.salt.is_empty();
-            }
+            o_uses_jitter |= parse_ods_ts(&kasp.signatures.jitter) > 0;
+            o_uses_retire_safety |= parse_ods_ts(&kasp.keys.retire_safety) > 0;
+            o_uses_publish_safety |= parse_ods_ts(&kasp.keys.publish_safety) > 0;
 
-            let ods_jitter = parse_ods_ts(&kasp.signatures.jitter);
-            o_uses_jitter |= ods_jitter > 0;
+            if kasp.signatures.validity.denial != kasp.signatures.validity.default {
+                o_uses_non_default_denial_validity = true;
+            }
+            if let DenialEnum::nsec3(params) = &kasp.denial.denial {
+                if matches!(&params.ttl, Some(d) if parse_ods_ts(d) > 0) {
+                    o_uses_non_zero_nsec3_ttl = true;
+                }
+                if parse_ods_ts(&params.resalt) > 0 {
+                    o_uses_nsec3_re_salting = true;
+                }
+                if params.hash.algorithm != 1 {
+                    o_uses_non_sha1_nsec3_hash_alg = true;
+                }
+                if params.hash.iterations != 0
+                    || u8::from_str(&params.hash.salt.length).unwrap() > 0
+                    || !params.hash.salt.salt.is_empty()
+                {
+                    o_uses_non_bcp_nsec3_params = true;
+                }
+            }
 
             // As policy saving cannot be told to use the simulated test
             // filesystem, handle the test case separately doing the main
@@ -748,22 +1093,40 @@ impl Migrator {
             }
         }
 
-        let readme_md = Self::generate_readme_markdown(
-            &c_conf,
-            c_conf_toml_path,
-            &o_conf,
-            o_conf_xml_path,
+        let cfg = GenerateReadmeConfig {
+            cascade: GenerateReadmeCascadeConfig {
+                conf: &c_conf,
+                conf_toml_path: c_conf_toml_path,
+            },
+            cascade_hsm_bridge: GenerateReadmeCascadeHsmBridgeConfig {
+                output_dir: &chb_dir,
+                conf_paths: &chb_conf_paths,
+            },
+            opendnssec: GenerateReadmeOpenDnssecConfig {
+                conf: &o_conf,
+                conf_xml_path: o_conf_xml_path,
+                signer_interfaces: &o_signer_interfaces,
+                writes_signed_zones_to_disk: o_writes_signed_zones_to_disk,
+                uses_jitter: o_uses_jitter,
+                uses_non_default_denial_validity: o_uses_non_default_denial_validity,
+                uses_non_zero_nsec3_ttl: o_uses_non_zero_nsec3_ttl,
+                uses_nsec3_re_salting: o_uses_nsec3_re_salting,
+                uses_non_sha1_nsec3_hash_alg: o_uses_non_sha1_nsec3_hash_alg,
+                uses_non_bcp_nsec3_params: o_uses_non_bcp_nsec3_params,
+                restricts_outbound_xfr: o_restricts_outbound_xfr,
+                uses_retire_safety: o_uses_retire_safety,
+                uses_publish_safety: o_uses_publish_safety,
+                key_len_upgraded: o_key_len_upgraded,
+                extra_keys_ignored: o_extra_keys_ignored,
+                uses_syslog_facility: o_uses_syslog_facility,
+                uses_rollover_notifications: o_uses_rollover_notifications,
+                uses_thread_count: o_uses_thread_count,
+            },
             output_dir_path,
-            &cmd_file_path,
-            &o_signer_interfaces,
-            o_writes_signed_zones_to_disk,
-            o_uses_non_bcp_nsec3_settings,
-            o_uses_jitter,
-            &k2p_dir,
-            &k2p_conf_paths,
-            &db_conn,
-        )
-        .await?;
+            cmd_file_path: &cmd_file_path,
+            force,
+        };
+        let readme_md = Self::generate_readme_markdown(cfg, &db_conn).await?;
 
         let readme_file_path = format!("{output_dir_path}/README.md");
         let mut readme_file = io.create(&readme_file_path)?;
@@ -780,64 +1143,145 @@ impl Migrator {
         Ok(())
     }
 
-    #[allow(clippy::too_many_arguments)]
-    async fn generate_readme_markdown(
-        c_conf: &cascaded::config::Config,
-        c_conf_toml_path: &str,
-        o_conf: &Configuration,
-        o_conf_xml_path: &str,
-        output_dir_path: &str,
-        cmd_file_path: &str,
-        o_signer_interfaces: &Option<Vec<String>>,
-        o_writes_signed_zones_to_disk: bool,
-        o_uses_non_bcp_nsec3_settings: bool,
-        o_uses_jitter: bool,
-        k2p_dir: &str,
-        k2p_conf_paths: &[String],
+    async fn generate_readme_markdown<'a>(
+        cfg: GenerateReadmeConfig<'a>,
         #[allow(unused_variables)] db_conn: &DbConn,
     ) -> anyhow::Result<String> {
         use std::fmt::Write;
 
         let mut changes = String::new();
 
-        if o_writes_signed_zones_to_disk {
+        if cfg.opendnssec.writes_signed_zones_to_disk {
             writeln!(
                 &mut changes,
                 "> - Signed zones will NOT be written to disk. Cascade only supports publication of signed zones via XFR. You will need a secondary nameserver or some other tool receive/fetch new signed zone versions via XFR."
             )?;
         }
-
-        if o_uses_non_bcp_nsec3_settings {
+        if cfg.opendnssec.uses_non_default_denial_validity {
             writeln!(
                 &mut changes,
-                "> - Cascade only supports [RFC 9276/BCP 236](https://datatracker.ietf.org/doc/rfc9276/) NSEC3 parameter settings: 0 iterations, no salt. At least one zone was detected that uses non-BCP iteration and salt settings. Affected zones will be signed by Cascade using BCP iteration and salt settings."
+                "> - Cascade doesn't support <Validity><Denial> != <Validity><Default>"
             )?;
         }
-
-        if o_uses_jitter {
+        if cfg.opendnssec.uses_non_zero_nsec3_ttl {
+            writeln!(
+                &mut changes,
+                "> - Cascade doesn't support a non-zero <Denial><NSEC3><TTL> value"
+            )?;
+        }
+        if cfg.opendnssec.uses_nsec3_re_salting {
+            writeln!(
+                &mut changes,
+                "> - Cascade doesn't support <Denial><NSEC3><Resalt>"
+            )?;
+        }
+        if cfg.opendnssec.uses_non_sha1_nsec3_hash_alg {
+            writeln!(
+                &mut changes,
+                "> - Cascade only supports [RFC 5155](https://datatracker.ietf.org/doc/rfc5155/) NSEC3 hashing algorithm 1 (SHA-1). Cascade will use SHA-1 NSEC3 hashing."
+            )?;
+        }
+        if cfg.opendnssec.uses_non_bcp_nsec3_params {
+            writeln!(
+                &mut changes,
+                "> - Cascade only supports [RFC 9276/BCP 236](https://datatracker.ietf.org/doc/rfc9276/) NSEC3 parameter settings: 0 iterations, no salt. Cascade will use BCP iteration and salt settings."
+            )?;
+        }
+        if cfg.opendnssec.uses_jitter {
             writeln!(
                 &mut changes,
                 "> - Cascade implements incremental signing differently than OpenDNSSEC and as such neither needs nor supports the OpenDNSSEC jitter functionality. Jitter settings will be ignored."
             )?;
         }
+        if cfg.opendnssec.restricts_outbound_xfr {
+            writeln!(
+                &mut changes,
+                "> - Cascade doesn't support restricting outbound XFR."
+            )?;
+        }
+        if cfg.opendnssec.uses_retire_safety {
+            writeln!(
+                &mut changes,
+                "> - Cascade handles key state changes differently than OpenDNSSEC and as such specified non-zero <RetireSafety> periods will be ignored."
+            )?;
+        }
+        if cfg.opendnssec.uses_publish_safety {
+            writeln!(
+                &mut changes,
+                "> - Cascade handles key state changes differently than OpenDNSSEC and as such specified non-zero <PublishSafety> periods will be ignored."
+            )?;
+        }
+        if cfg.opendnssec.restricts_outbound_xfr {
+            writeln!(
+                &mut changes,
+                "> - Cascade doesn't support restricting outbound XFR."
+            )?;
+        }
+        if cfg.opendnssec.key_len_upgraded {
+            writeln!(
+                &mut changes,
+                "> - Cascade doesn't support KSK and ZSK with differing lengths in the same policy. Future keys for such policies will be generated with the longest length for the policy."
+            )?;
+        }
+        if cfg.opendnssec.extra_keys_ignored {
+            writeln!(
+                &mut changes,
+                "> - Cascade doesn't support multiple ZSKs, KSKs or CSKs per policy. Only the first key of each type will be used."
+            )?;
+        }
+        if cfg.opendnssec.uses_syslog_facility {
+            writeln!(
+                &mut changes,
+                "> - Cascade doesn't support setting the facility when using syslog logging. Syslog messages will be logged with the 'user' facility."
+            )?;
+        }
+        if cfg.opendnssec.uses_rollover_notifications {
+            writeln!(
+                &mut changes,
+                "> - Cascade doesn't support rollover notifications."
+            )?;
+        }
+        if cfg.opendnssec.uses_thread_count {
+            writeln!(
+                &mut changes,
+                "> - Cascade doesn't support setting signer thread pool size."
+            )?;
+        }
 
         if !changes.is_empty() {
-            changes = format!(
-                "## Important differences with Cascade compared to OpenDNSSEC\n\n> [!WARNING]\n{changes}"
-            );
+            changes = indoc::formatdoc!("## Important differences with Cascade compared to OpenDNSSEC
+
+                > [!WARNING]
+                > One or more of your OpenDNSSEC configuration settings is unsupported by or handled differently by Cascade:
+                {changes}");
         }
 
         let mut p = MarkdownWriter::new("#");
 
-        p.writeln(indoc::formatdoc!("
-            # How to migrate your OpenDNSSEC instance to Cascade
+        let o_conf_xml_path = cfg.opendnssec.conf_xml_path;
+        let c_conf_toml_path = cfg.cascade.conf_toml_path;
+        let output_dir_path = cfg.output_dir_path;
 
+        p.writeln(indoc::formatdoc!(
+            "
+            # How to migrate your OpenDNSSEC instance to Cascade
+        "
+        ))?;
+
+        if matches!(cfg.force, ForceMode::Enabled) {
+            p.writeln(indoc::indoc! {"
+            > [!WARNING]
+            > Force mode was enabled. This is not advised. The steps provided here will likely fail. Even if they succeed your Cascade instance will likely have limitations and/or different behaviour compared to your OpenDNSSEC instance.
+            "})?;
+        }
+
+        p.writeln(indoc::formatdoc!("
             This document was generated by `ods2cascade` with the following inputs:
             
               - OpenDNSSEC config file: `{o_conf_xml_path}`
               - Cascade config file   : `{c_conf_toml_path}`
               - Output directory      : `{output_dir_path}`
-            
+
             It suggests a set of steps and commands that can be used to migrate signing and publishing of DNS zones from OpenDNSSEC to Cascade, using data already gathered from OpenDNSSEC, adjusted for how Cascade works, and written to the specified output directory.
             
             No attempt was made to detect specifics of your system outside of OpenDNSSEC itself, or to adjust to them. For example, you will need to adjust the process to allow for things such as:
@@ -853,9 +1297,7 @@ impl Migrator {
               - Updating your backup and monitoring procedures.
             
             {changes}
-            
             ## Migration steps
-
         "))?;
 
         p.warning("The commands shown below are examples only and require your review and may need adjusting for your setup.")?;
@@ -863,13 +1305,13 @@ impl Migrator {
 
         // Notify the user of any Cascade config changes they need to make.
         // TODO: Use https://github.com/NLnetLabs/ods2cascade/pull/36 when/if ready.
-        if let Some(o_signer_interfaces) = o_signer_interfaces {
-            let mut different = c_conf.server.servers.len() == o_signer_interfaces.len();
+        if let Some(o_signer_interfaces) = cfg.opendnssec.signer_interfaces {
+            let mut different = cfg.cascade.conf.server.servers.len() == o_signer_interfaces.len();
 
             // Determine if the user has already correctly configured
             // Cascade to match the listener settings of OpenDNSSEC.
             if !different {
-                for c_server in &c_conf.server.servers {
+                for c_server in &cfg.cascade.conf.server.servers {
                     let c_server = c_server.addr().to_string();
                     if !o_signer_interfaces.contains(&c_server) {
                         different = true;
@@ -887,7 +1329,7 @@ impl Migrator {
                 p.println(format!("  servers = [{}]", o_signer_interfaces.join(",")))?;
                 p.next_step()?;
             }
-        } else if c_conf.server.servers.is_empty() {
+        } else if cfg.cascade.conf.server.servers.is_empty() {
             p.println("Configure Cascade to publish on a UDP+TCP interface.")?;
             p.println("This is needed because unlike OpenDNSSEC, Cascade always makes signed zones available via XFR for secondary nameservers.")?;
             p.println("")?;
@@ -904,7 +1346,7 @@ impl Migrator {
             p.next_step()?;
         }
 
-        if o_writes_signed_zones_to_disk {
+        if cfg.opendnssec.writes_signed_zones_to_disk {
             // OpenDNSSEC was not configured to serve XFR. It must therefore have
             // been writing signed zones to files on disk.
             p.println("Deploy a secondary nameserver.")?;
@@ -915,13 +1357,13 @@ impl Migrator {
         }
 
         p.next_step()?;
-        let have_multiple_k2p_configs = k2p_conf_paths.len() > 1;
+        let have_multiple_k2p_configs = cfg.cascade_hsm_bridge.conf_paths.len() > 1;
         let plural = if have_multiple_k2p_configs { "s" } else { "" };
         p.println(format!(
             "Validate your cascade-hsm-bridge configuration file{plural}."
         ))?;
         let mut validate_cmds = String::new();
-        for k2p_conf_path in k2p_conf_paths.iter() {
+        for k2p_conf_path in cfg.cascade_hsm_bridge.conf_paths.iter() {
             // Sudo is not required here as the config file was written by the
             // current user.
             use std::fmt::Write;
@@ -939,7 +1381,7 @@ impl Migrator {
         p.note(format!("This should be a location that the cascade-hsm-bridge instance{plural} will have read access to."))?;
         p.println("")?;
         if !have_multiple_k2p_configs
-            && let Some(signer) = o_conf.signer.as_ref()
+            && let Some(signer) = cfg.opendnssec.conf.signer.as_ref()
             && let Some(Privileges {
                 user: Some(user), ..
             }) = &signer.privileges
@@ -952,7 +1394,10 @@ impl Migrator {
         // TODO: Should the copied files be chown'd to the cascade-hsm-bridge user?
         p.code_block(
             "sh",
-            format!("sudo cp {k2p_dir}/*.toml /etc/cascade-hsm-bridge/"),
+            format!(
+                "sudo cp {}/*.toml /etc/cascade-hsm-bridge/",
+                cfg.cascade_hsm_bridge.output_dir
+            ),
         )?;
 
         if have_multiple_k2p_configs {
@@ -962,7 +1407,7 @@ impl Migrator {
                 If using systemd to control cascade-hsm-bridge you will need to create separate cascade-hsm-bridge units for each of the following cascade-hsm-bridge configuration files.
                 Each systemd cascade-hsm-bridge unit should invoke kmi2pkcs11 with `--config` specifying its own kmi2pkcs11 configuration file.
             "})?;
-            for k2p_conf_path in k2p_conf_paths {
+            for k2p_conf_path in cfg.cascade_hsm_bridge.conf_paths {
                 let file_name = Path::new(&k2p_conf_path).file_name().unwrap();
                 p.println(format!(
                     "  - `/etc/cascade-hsm-bridge/{}`",
@@ -990,7 +1435,7 @@ impl Migrator {
         }
         p.println("Otherwise:")?;
         let mut start_cmds = String::new();
-        for k2p_conf_path in k2p_conf_paths {
+        for k2p_conf_path in cfg.cascade_hsm_bridge.conf_paths {
             let file_name = Path::new(&k2p_conf_path).file_name().unwrap();
             use std::fmt::Write;
             writeln!(
@@ -1020,13 +1465,13 @@ impl Migrator {
 
         p.next_step()?;
         p.println("Review the generated commands that will be used to configure Cascade.")?;
-        p.code_block("sh", format!("less {cmd_file_path}"))?;
+        p.code_block("sh", format!("less {}", cfg.cmd_file_path))?;
 
         p.next_step()?;
         p.println("Execute the generated commands to configure Cascade.")?;
-        p.warning(format!("This step will cause zones to be added and signed. If you have a lot of zones or very large zones this could use a lot of CPU and/or memory. Please review the commands in `{cmd_file_path}` before executing the script."))?;
+        p.warning(format!("This step will cause zones to be added and signed. If you have a lot of zones or very large zones this could use a lot of CPU and/or memory. Please review the commands in `{}` before executing the script.", cfg.cmd_file_path))?;
         p.println("")?;
-        p.code_block("sh", format!("sh -ex {cmd_file_path}"))?;
+        p.code_block("sh", format!("sh -ex {}", cfg.cmd_file_path))?;
 
         #[cfg(not(test))]
         if matches!(db_conn, DbConn::MySQL(_)) {
@@ -1127,6 +1572,46 @@ impl MarkdownWriter {
     }
 }
 
+struct GenerateReadmeConfig<'a> {
+    cascade: GenerateReadmeCascadeConfig<'a>,
+    cascade_hsm_bridge: GenerateReadmeCascadeHsmBridgeConfig<'a>,
+    opendnssec: GenerateReadmeOpenDnssecConfig<'a>,
+    output_dir_path: &'a str,
+    cmd_file_path: &'a str,
+    force: ForceMode,
+}
+
+struct GenerateReadmeCascadeConfig<'a> {
+    conf: &'a cascaded::config::Config,
+    conf_toml_path: &'a str,
+}
+
+struct GenerateReadmeCascadeHsmBridgeConfig<'a> {
+    output_dir: &'a str,
+    conf_paths: &'a [String],
+}
+
+struct GenerateReadmeOpenDnssecConfig<'a> {
+    conf: &'a Configuration,
+    conf_xml_path: &'a str,
+    signer_interfaces: &'a Option<Vec<String>>,
+    writes_signed_zones_to_disk: bool,
+    uses_jitter: bool,
+    uses_non_default_denial_validity: bool,
+    uses_non_zero_nsec3_ttl: bool,
+    uses_nsec3_re_salting: bool,
+    uses_non_sha1_nsec3_hash_alg: bool,
+    uses_non_bcp_nsec3_params: bool,
+    restricts_outbound_xfr: bool,
+    uses_retire_safety: bool,
+    uses_publish_safety: bool,
+    key_len_upgraded: bool,
+    extra_keys_ignored: bool,
+    uses_syslog_facility: bool,
+    uses_rollover_notifications: bool,
+    uses_thread_count: bool,
+}
+
 fn process_adapter<IO: FsOps>(
     adapter: &crate::schema::xml::zone_list::Adapter,
     addns_paths_to_adapters: &mut BTreeMap<String, Adapter>,
@@ -1156,38 +1641,85 @@ fn process_xml<'de, T: Deserialize<'de>>(xml: &'de str) -> Result<T, DeError> {
     quick_xml::de::from_str(xml)
 }
 
+#[rustfmt::skip]
+pub fn eq_excluding_length(lhs: &KeyParameters, rhs: &KeyParameters) -> bool {
+    matches!(
+        (lhs, rhs),
+        (KeyParameters::RsaSha256(_),    KeyParameters::RsaSha256(_))    |
+        (KeyParameters::RsaSha512(_),    KeyParameters::RsaSha512(_))    |
+        (KeyParameters::EcdsaP256Sha256, KeyParameters::EcdsaP256Sha256) |
+        (KeyParameters::EcdsaP384Sha384, KeyParameters::EcdsaP384Sha384) |
+        (KeyParameters::Ed25519,         KeyParameters::Ed25519)         |
+        (KeyParameters::Ed448,           KeyParameters::Ed448)
+    )
+}
+
+pub fn key_length(key: &KeyParameters) -> Option<usize> {
+    match key {
+        KeyParameters::RsaSha256(len) | KeyParameters::RsaSha512(len) => Some(*len),
+        KeyParameters::EcdsaP256Sha256
+        | KeyParameters::EcdsaP384Sha384
+        | KeyParameters::Ed25519
+        | KeyParameters::Ed448 => None,
+    }
+}
+
+// First return bool: true if keys of different length but same algorithm were
+// found and thus the longest (strongest) was chosen.
+// Second return bool: true if more than one key of the same type (KSK, ZSK,
+// CSK) was found.
 fn create_cascade_policy(
     kasp: &crate::schema::xml::kasp::Policy,
     output: Option<&Outbound>,
     hsm_server_id: Option<String>,
-) -> anyhow::Result<cascaded::policy::file::Spec> {
+) -> anyhow::Result<(cascaded::policy::file::Spec, bool, bool)> {
     // NOTE: OpenDNSSEC supports multiple keys per key type (KSK, ZSK, CSK)
     // per policy each having their own algorithm settings. Cascade only
     // supports one key specification per policy. Use the first key found.
     let use_csk = !kasp.keys.csks.is_empty();
-    let mut algorithm = None;
+    let mut policy_algorithm = None;
+    let mut key_length_upgraded = false;
+    let extra_keys_ignored =
+        kasp.keys.ksks.len() > 1 || kasp.keys.zsks.len() > 1 || kasp.keys.csks.len() > 1;
 
     let ksk = kasp.keys.ksks.first();
     if let Some(key) = ksk {
-        algorithm = Some(alg_to_key_parameters(Key::Ksk(key)));
+        policy_algorithm = Some(alg_to_key_parameters(Key::Ksk(key)));
     }
 
     let zsk = kasp.keys.zsks.first();
     if let Some(key) = zsk
-        && let Some(algorithm) = &algorithm
+        && let Some(seen_algorithm) = &policy_algorithm
     {
+        // Reject different algorithm as Cascade only supports a single key
+        // algorithm per policy.
         let zsk_algorithm = alg_to_key_parameters(Key::Zsk(key));
-        if zsk_algorithm != *algorithm {
-            bail!("Unsupported: ZSK algorithm ({zsk_algorithm}) != KSK algorithm ({algorithm})",)
+        if !eq_excluding_length(&zsk_algorithm, seen_algorithm) {
+            return Err(MigrateError::NotYetSupportedByCascade(vec![format!(
+                "ZSK algorithm ({zsk_algorithm}) != KSK algorithm ({seen_algorithm})"
+            )])
+            .into());
+        } else {
+            // Accept same algorithm, and if different key length prefer the
+            // longest (strongest) length.
+            let this_key_length = key_length(&zsk_algorithm);
+            let seen_key_length = key_length(seen_algorithm);
+            key_length_upgraded |= this_key_length != seen_key_length;
+            if this_key_length > seen_key_length {
+                policy_algorithm = Some(zsk_algorithm);
+            }
         }
     }
 
     let csk = kasp.keys.csks.first();
     if let Some(key) = csk {
-        if algorithm.is_some() {
-            bail!("Unsupported: Cannot use both CSK and KSK/ZSK");
+        if policy_algorithm.is_some() {
+            return Err(MigrateError::NotYetSupportedByCascade(vec![
+                "Cannot use CSK at the same time as KSK/ZSK".into(),
+            ])
+            .into());
         }
-        algorithm = Some(alg_to_key_parameters(Key::Csk(key)));
+        policy_algorithm = Some(alg_to_key_parameters(Key::Csk(key)));
     }
 
     let mut send_notify_to = vec![];
@@ -1213,6 +1745,25 @@ fn create_cascade_policy(
         },
     };
 
+    let auto_ksk = ksk
+        .map(|k| manual_or_automatic(k.manual_rollover))
+        .unwrap_or_default();
+    let auto_zsk = zsk
+        .map(|k| manual_or_automatic(k.manual_rollover))
+        .unwrap_or_default();
+    let auto_csk = csk
+        .map(|k| manual_or_automatic(k.manual_rollover))
+        .unwrap_or_default();
+
+    // We'll enable Cascades' automatic algorithm rollover support as
+    // OpenDNSSEC 2.x apparently has support for algorithm rollover.
+    // See: https://www.mail-archive.com/opendnssec-announce@lists.opendnssec.org/msg00012.html
+    let auto_algorithm = AutoConfig::default();
+
+    // Cascade doesn't yet support restricting XFR from secondaries.
+    // Allow XFR from any secondary.
+    let provide_xfr_to = vec![];
+
     let policy = cascaded::policy::PolicyVersion {
         name: kasp.name.clone().into_boxed_str(),
         loader: cascaded::policy::LoaderPolicy {
@@ -1221,27 +1772,33 @@ fn create_cascade_policy(
         key_manager: cascaded::policy::KeyManagerPolicy {
             hsm_server_id,
             use_csk,
-            algorithm: algorithm.unwrap(),
+            algorithm: policy_algorithm.unwrap(),
             ksk_validity: ksk.map(|k| parse_ods_ts(&k.lifetime)),
             zsk_validity: zsk.map(|k| parse_ods_ts(&k.lifetime)),
             csk_validity: csk.map(|k| parse_ods_ts(&k.lifetime)),
-            auto_ksk: ksk
-                .map(|k| manual_or_automatic(k.manual_rollover))
-                .unwrap_or_default(),
-            auto_zsk: zsk
-                .map(|k| manual_or_automatic(k.manual_rollover))
-                .unwrap_or_default(),
-            auto_csk: csk
-                .map(|k| manual_or_automatic(k.manual_rollover))
-                .unwrap_or_default(),
-            auto_algorithm: AutoConfig::default(), // TODO: What does ODS do for this?
+            auto_ksk,
+            auto_zsk,
+            auto_csk,
+            auto_algorithm,
             dnskey_inception_offset: parse_ods_ts(&kasp.signatures.inception_offset),
-            dnskey_signature_lifetime: parse_ods_ts(&kasp.signatures.validity.default),
+            dnskey_signature_lifetime: parse_ods_ts(
+                kasp.signatures
+                    .validity
+                    .keyset
+                    .as_ref()
+                    .unwrap_or(&kasp.signatures.validity.default),
+            ),
             dnskey_remain_time: parse_ods_ts(&kasp.signatures.refresh),
             cds_inception_offset: parse_ods_ts(&kasp.signatures.inception_offset),
-            cds_signature_lifetime: parse_ods_ts(&kasp.signatures.validity.default),
+            cds_signature_lifetime: parse_ods_ts(
+                kasp.signatures
+                    .validity
+                    .keyset
+                    .as_ref()
+                    .unwrap_or(&kasp.signatures.validity.default),
+            ),
             cds_remain_time: parse_ods_ts(&kasp.signatures.refresh),
-            ds_algorithm: DsAlgorithm::Sha256, // TODO: ODS doesn't have this
+            ds_algorithm: DsAlgorithm::default(),
             default_ttl: Ttl::from_secs(parse_ods_ts(&kasp.keys.ttl)),
             auto_remove: kasp.keys.purge.is_some(),
             auto_remove_delay: kasp
@@ -1259,9 +1816,9 @@ fn create_cascade_policy(
                 SerialEnum::unixtime => SignerSerialPolicy::UnixTime,
                 SerialEnum::keep => SignerSerialPolicy::Keep,
             },
-            sig_inception_offset: 0, // TODO
-            sig_validity_time: 0,    // TODO
-            sig_remain_time: 0,      // TODO
+            sig_inception_offset: parse_ods_ts(&kasp.signatures.inception_offset),
+            sig_validity_time: parse_ods_ts(&kasp.signatures.validity.default),
+            sig_remain_time: parse_ods_ts(&kasp.signatures.refresh),
             denial,
             review: ReviewPolicy::default(), // ODS doesn't have this concept
             signature_refresh_interval: 12 * 3600, // ODS doesn't have this concept, match the Cascade default
@@ -1269,7 +1826,7 @@ fn create_cascade_policy(
         },
         server: ServerPolicy {
             outbound: OutboundPolicy {
-                provide_xfr_to: vec![], // TODO
+                provide_xfr_to,
                 send_notify_to,
             },
         },
@@ -1281,7 +1838,11 @@ fn create_cascade_policy(
         zones: Default::default(),
     };
 
-    Ok(cascaded::policy::file::Spec::build(&policy))
+    Ok((
+        cascaded::policy::file::Spec::build(&policy),
+        key_length_upgraded,
+        extra_keys_ignored,
+    ))
 }
 
 fn manual_or_automatic(manual_rollover: Option<()>) -> AutoConfig {
@@ -1293,12 +1854,7 @@ fn manual_or_automatic(manual_rollover: Option<()>) -> AutoConfig {
             done: false,
         }
     } else {
-        AutoConfig {
-            start: true,
-            report: true,
-            expire: true,
-            done: true,
-        }
+        AutoConfig::default()
     }
 }
 
@@ -1575,7 +2131,7 @@ mod test {
     use pretty_assertions::assert_eq;
 
     use crate::{
-        MigrateError, Migrator,
+        ForceMode, MigrateError, Migrator,
         io::{Fs, FsOps},
     };
 
@@ -1586,7 +2142,8 @@ mod test {
         let io = Fs::new();
         io.register_dir("out");
 
-        let res = Migrator::migrate("conf.toml", "conf.xml", "out", &io).await;
+        let res =
+            Migrator::migrate("conf.toml", "conf.xml", "out", ForceMode::default(), &io).await;
         let v = to_inner_err::<_, std::io::Error>(res);
         assert_eq!(v.kind(), std::io::ErrorKind::AlreadyExists);
     }
@@ -1596,6 +2153,19 @@ mod test {
         let res = run_test("minimal").await;
         let v = to_inner_err::<_, MigrateError>(res);
         assert_eq!(v, MigrateError::KaspPolicySetIsEmpty);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn passthrough_not_supported_by_cascade_yet() -> anyhow::Result<()> {
+        let res = run_test("1p-1z-with-passthrough").await;
+        let v = to_inner_err::<_, MigrateError>(res);
+        assert_eq!(
+            v,
+            MigrateError::NotYetSupportedByCascade(vec![
+                "<Passthrough/> in ODS KASP policy 'minimal'".into()
+            ])
+        );
         Ok(())
     }
 
@@ -1613,7 +2183,9 @@ mod test {
         let v = to_inner_err::<_, MigrateError>(res);
         assert_eq!(
             v,
-            MigrateError::RepositoryWithoutPinNotYetSupported("somehsm".to_string())
+            MigrateError::NotYetSupportedByCascade(vec![
+                "Missing <PIN/> in ODS HSM repository 'somehsm'".into()
+            ])
         );
         Ok(())
     }
@@ -1647,6 +2219,7 @@ mod test {
     async fn require_consistent_zones_xml() -> anyhow::Result<()> {
         let res = run_test("1p-1z-inconsistent-zones-xml").await;
         let v = to_inner_err::<_, MigrateError>(res);
+        dbg!(&v);
         assert!(matches!(v, MigrateError::InconsistentState(_)));
         Ok(())
     }
@@ -1666,6 +2239,94 @@ mod test {
     }
 
     #[tokio::test]
+    #[should_panic(
+        expected = "Mixed key algorithms in ODS KASP policy 'minimal': 8 (len 1048) != 8 (len 2047)"
+    )]
+    async fn mismatched_ksk_lengths1() {
+        run_test("1p-1z-use-longest-ksk").await.unwrap();
+    }
+
+    #[tokio::test]
+    #[should_panic(
+        expected = "Mixed key algorithms in ODS KASP policy 'minimal': 8 (len 2047) != 8 (len 1048)"
+    )]
+    async fn mismatched_ksk_lengths2() {
+        run_test("1p-1z-use-longest-ksk2").await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn force_use_longest_ksk() -> anyhow::Result<()> {
+        force_run_test("1p-1z-use-longest-ksk").await?;
+        force_run_test("1p-1z-use-longest-ksk2").await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[should_panic(
+        expected = "Mixed key algorithms in ODS KASP policy 'minimal': 8 (len 2047) != 8 (len 1048)"
+    )]
+    async fn mismatched_zsk_lengths1() {
+        run_test("1p-1z-use-longest-zsk").await.unwrap();
+    }
+
+    #[tokio::test]
+    #[should_panic(
+        expected = "Mixed key algorithms in ODS KASP policy 'minimal': 8 (len 2047) != 8 (len 1048)"
+    )]
+    async fn mismatched_zsk_lengths2() {
+        run_test("1p-1z-use-longest-zsk2").await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn force_use_longest_zsk() -> anyhow::Result<()> {
+        force_run_test("1p-1z-use-longest-zsk").await?;
+        force_run_test("1p-1z-use-longest-zsk2").await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[should_panic(
+        expected = "Mixed key algorithms in ODS KASP policy 'minimal': 8 (len 2048) != 10 (len 2048)"
+    )]
+    async fn too_many_ksks() {
+        run_test("1p-1z-ignore-extra-ksks").await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn force_use_first_ksk() -> anyhow::Result<()> {
+        force_run_test("1p-1z-ignore-extra-ksks").await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[should_panic(
+        expected = "Mixed key algorithms in ODS KASP policy 'minimal': 8 (len 2048) != 10 (len 2048)"
+    )]
+    async fn too_many_zsks() {
+        run_test("1p-1z-ignore-extra-zsks").await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn force_use_first_zsk() -> anyhow::Result<()> {
+        force_run_test("1p-1z-ignore-extra-zsks").await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[should_panic(
+        expected = "Mixed key algorithms in ODS KASP policy 'minimal': 8 (len 2048) != 10 (len 2048)"
+    )]
+    async fn too_many_csks() {
+        run_test("1p-1z-ignore-extra-csks").await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn force_use_first_csk() -> anyhow::Result<()> {
+        force_run_test("1p-1z-ignore-extra-csks").await?;
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn warn_about_jitter() -> anyhow::Result<()> {
         run_test("1p-1z-with-jitter").await?;
         Ok(())
@@ -1674,6 +2335,14 @@ mod test {
     //--- Helper functions ---------------------------------------------------
 
     async fn run_test(test_name: &'static str) -> anyhow::Result<Fs> {
+        do_run_test(test_name, false).await
+    }
+
+    async fn force_run_test(test_name: &'static str) -> anyhow::Result<Fs> {
+        do_run_test(test_name, true).await
+    }
+
+    async fn do_run_test(test_name: &'static str, force: bool) -> anyhow::Result<Fs> {
         let test_dir = PathBuf::from_str(&format!("./test-data/{test_name}/")).unwrap();
 
         // Create a simulated file system to read input files from and write
@@ -1698,7 +2367,11 @@ mod test {
         }
 
         // Run the migration.
-        Migrator::migrate("conf.toml", "conf.xml", "out", &io).await?;
+        let force = match force {
+            false => ForceMode::Disabled,
+            true => ForceMode::Testing,
+        };
+        Migrator::migrate("conf.toml", "conf.xml", "out", force, &io).await?;
 
         // Verify the expected outputs
         let mut expected_paths = HashSet::new();
