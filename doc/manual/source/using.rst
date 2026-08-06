@@ -43,7 +43,7 @@ locations, we can invoke :program:`ods2cascade` like so:
 
   .. code-block:: bash
 
-     $ ods2cascade /etc/opendnssec/conf.xml /etc/cascade/config.toml /tmp/out
+     $ ods2cascade /etc/cascade/config.toml /etc/opendnssec/conf.xml /tmp/out
 
 This will:
 
