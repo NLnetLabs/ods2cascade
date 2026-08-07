@@ -9,17 +9,17 @@ use std::{
     net::{IpAddr, SocketAddr},
     path::{Path, PathBuf},
     str::FromStr,
-    time::Duration,
 };
 
 use anyhow::{anyhow, bail};
 use cascade_hsm_bridge_cfg::daemonbase::process::{GroupId, UserId};
-use cascaded::policy::{
-    AutoConfig, DsAlgorithm, NameserverCommsPolicy, OutboundPolicy, Policy, ReviewPolicy,
-    ServerPolicy, SignerDenialPolicy, SignerPolicy, SignerSerialPolicy,
+use cascade_policy::v1::{
+    CskManagementSpec, DsAlgorithmSpec, KeyGenerationParametersSpec, KeyManagerGenerationSpec,
+    KeyManagerRecordsSpec, KeyManagerSpec, KeyValiditySpec, KskManagementSpec, LoaderSpec,
+    NameserverCommsSpec, OutboundSpec, RecordSigningSpec, RolloverSpec, ServerSpec,
+    SignerDenialSpec, SignerSerialPolicySpec, SignerSpec, SimpleNameserverCommsSpec, TimeSpan,
+    ZskManagementSpec,
 };
-use cascaded::{config::file::Spec, policy::KeyParameters};
-use domain::base::Ttl;
 use quick_xml::DeError;
 use schema::xml::addns::{Adapter, Outbound};
 use schema::xml::conf::Configuration;
@@ -203,8 +203,8 @@ impl Migrator {
 
         println!("Loading {c_conf_toml_path}...");
         let toml = io.read_to_string(c_conf_toml_path)?;
-        let c_conf_spec: Spec = toml::from_str(&toml)?;
-        let mut c_conf = cascaded::config::Config::default();
+        let c_conf_spec: cascade_cfg::file::v1::Spec = toml::from_str(&toml)?;
+        let mut c_conf = cascade_cfg::Config::default();
         c_conf_spec.parse_into(&mut c_conf);
         let c_pol_dir = c_conf.policy_dir.clone();
 
@@ -478,7 +478,7 @@ impl Migrator {
         let mut o_addns_path_by_o_zone_name = BTreeMap::<String, String>::new();
 
         // Cascade policy name -> Cascade policy
-        let mut c_pol_by_c_pol_name = BTreeMap::<String, cascaded::policy::file::Spec>::new();
+        let mut c_pol_by_c_pol_name = BTreeMap::<String, cascade_policy::v1::Spec>::new();
 
         // ODS zone name -> ODS signed zone output path
         let _o_signed_zone_output_paths_by_zone_name = BTreeMap::<String, String>::new();
@@ -865,17 +865,9 @@ impl Migrator {
                 }
             }
 
-            // As policy saving cannot be told to use the simulated test
-            // filesystem, handle the test case separately doing the main
-            // things that actually policy saving does.
-            #[cfg(not(test))]
-            c_pol.save(out_path.as_str().into())?;
-            #[cfg(test)]
-            {
-                let toml = toml::to_string_pretty(&c_pol)?;
-                let mut file = io.create(out_path)?;
-                file.write_all(toml.as_bytes())?;
-            }
+            let toml = toml::to_string_pretty(&c_pol)?;
+            let mut file = io.create(out_path)?;
+            file.write_all(toml.as_bytes())?;
             c_pol_by_c_pol_name.insert(c_pol_name.to_string(), c_pol);
         }
 
@@ -1032,8 +1024,7 @@ impl Migrator {
                     // the key. Cascade can't do that so we need to know which
                     // repository it should be in. We get that from the zone
                     // policy.
-                    let cascaded::policy::file::Spec::V1(c_pol) =
-                        c_pol_by_c_pol_name.get(c_pol_name).unwrap();
+                    let c_pol = c_pol_by_c_pol_name.get(c_pol_name).unwrap();
                     let hsm_server_id =
                         c_pol.key_manager.generation.hsm_server_id.as_ref().unwrap();
 
@@ -1582,7 +1573,7 @@ struct GenerateReadmeConfig<'a> {
 }
 
 struct GenerateReadmeCascadeConfig<'a> {
-    conf: &'a cascaded::config::Config,
+    conf: &'a cascade_cfg::Config,
     conf_toml_path: &'a str,
 }
 
@@ -1642,25 +1633,26 @@ fn process_xml<'de, T: Deserialize<'de>>(xml: &'de str) -> Result<T, DeError> {
 }
 
 #[rustfmt::skip]
-pub fn eq_excluding_length(lhs: &KeyParameters, rhs: &KeyParameters) -> bool {
+pub fn eq_excluding_length(lhs: &cascade_policy::v1::KeyGenerationParametersSpec, rhs: &KeyGenerationParametersSpec) -> bool {
     matches!(
         (lhs, rhs),
-        (KeyParameters::RsaSha256(_),    KeyParameters::RsaSha256(_))    |
-        (KeyParameters::RsaSha512(_),    KeyParameters::RsaSha512(_))    |
-        (KeyParameters::EcdsaP256Sha256, KeyParameters::EcdsaP256Sha256) |
-        (KeyParameters::EcdsaP384Sha384, KeyParameters::EcdsaP384Sha384) |
-        (KeyParameters::Ed25519,         KeyParameters::Ed25519)         |
-        (KeyParameters::Ed448,           KeyParameters::Ed448)
+        (KeyGenerationParametersSpec::RsaSha256(_),    KeyGenerationParametersSpec::RsaSha256(_))    |
+        (KeyGenerationParametersSpec::RsaSha512(_),    KeyGenerationParametersSpec::RsaSha512(_))    |
+        (KeyGenerationParametersSpec::EcdsaP256Sha256, KeyGenerationParametersSpec::EcdsaP256Sha256) |
+        (KeyGenerationParametersSpec::EcdsaP384Sha384, KeyGenerationParametersSpec::EcdsaP384Sha384) |
+        (KeyGenerationParametersSpec::Ed25519,         KeyGenerationParametersSpec::Ed25519)         |
+        (KeyGenerationParametersSpec::Ed448,           KeyGenerationParametersSpec::Ed448)
     )
 }
 
-pub fn key_length(key: &KeyParameters) -> Option<usize> {
+pub fn key_length(key: &KeyGenerationParametersSpec) -> Option<u16> {
     match key {
-        KeyParameters::RsaSha256(len) | KeyParameters::RsaSha512(len) => Some(*len),
-        KeyParameters::EcdsaP256Sha256
-        | KeyParameters::EcdsaP384Sha384
-        | KeyParameters::Ed25519
-        | KeyParameters::Ed448 => None,
+        KeyGenerationParametersSpec::RsaSha256(len)
+        | KeyGenerationParametersSpec::RsaSha512(len) => Some(*len),
+        KeyGenerationParametersSpec::EcdsaP256Sha256
+        | KeyGenerationParametersSpec::EcdsaP384Sha384
+        | KeyGenerationParametersSpec::Ed25519
+        | KeyGenerationParametersSpec::Ed448 => None,
     }
 }
 
@@ -1672,7 +1664,7 @@ fn create_cascade_policy(
     kasp: &crate::schema::xml::kasp::Policy,
     output: Option<&Outbound>,
     hsm_server_id: Option<String>,
-) -> anyhow::Result<(cascaded::policy::file::Spec, bool, bool)> {
+) -> anyhow::Result<(cascade_policy::v1::Spec, bool, bool)> {
     // NOTE: OpenDNSSEC supports multiple keys per key type (KSK, ZSK, CSK)
     // per policy each having their own algorithm settings. Cascade only
     // supports one key specification per policy. Use the first key found.
@@ -1730,17 +1722,17 @@ fn create_cascade_policy(
             let port = remote.port.unwrap_or(53);
             let ip_addr = IpAddr::from_str(&remote.address)?;
             let addr = SocketAddr::new(ip_addr, port);
-            let comms_policy = NameserverCommsPolicy {
+            let comms_policy = NameserverCommsSpec::Simple(SimpleNameserverCommsSpec {
                 addr,
                 tsig_key_name: None, // TODO
-            };
+            });
             send_notify_to.push(comms_policy);
         }
     }
 
     let denial = match &kasp.denial.denial {
-        DenialEnum::nsec(_) => SignerDenialPolicy::NSec,
-        DenialEnum::nsec3(nsec3) => SignerDenialPolicy::NSec3 {
+        DenialEnum::nsec(_) => SignerDenialSpec::NSec,
+        DenialEnum::nsec3(nsec3) => SignerDenialSpec::NSec3 {
             opt_out: nsec3.opt_out.is_some(),
         },
     };
@@ -1758,103 +1750,118 @@ fn create_cascade_policy(
     // We'll enable Cascades' automatic algorithm rollover support as
     // OpenDNSSEC 2.x apparently has support for algorithm rollover.
     // See: https://www.mail-archive.com/opendnssec-announce@lists.opendnssec.org/msg00012.html
-    let auto_algorithm = AutoConfig::default();
+    let auto_algorithm = RolloverSpec::default();
 
     // Cascade doesn't yet support restricting XFR from secondaries.
     // Allow XFR from any secondary.
     let provide_xfr_to = vec![];
 
-    let policy = cascaded::policy::PolicyVersion {
-        name: kasp.name.clone().into_boxed_str(),
-        loader: cascaded::policy::LoaderPolicy {
-            review: ReviewPolicy::default(), // ODS doesn't have this concept
+    let record_signing_spec = RecordSigningSpec {
+        signature_inception_offset: TimeSpan::from_secs(parse_ods_ts(
+            &kasp.signatures.inception_offset,
+        )),
+        signature_lifetime: TimeSpan::from_secs(parse_ods_ts(
+            kasp.signatures
+                .validity
+                .keyset
+                .as_ref()
+                .unwrap_or(&kasp.signatures.validity.default),
+        )),
+        signature_remain_time: TimeSpan::from_secs(parse_ods_ts(&kasp.signatures.refresh)),
+    };
+
+    let policy = cascade_policy::v1::Spec {
+        loader: LoaderSpec {
+            review: None, // ODS doesn't have this concept
         },
-        key_manager: cascaded::policy::KeyManagerPolicy {
-            hsm_server_id,
-            use_csk,
-            algorithm: policy_algorithm.unwrap(),
-            ksk_validity: ksk.map(|k| parse_ods_ts(&k.lifetime)),
-            zsk_validity: zsk.map(|k| parse_ods_ts(&k.lifetime)),
-            csk_validity: csk.map(|k| parse_ods_ts(&k.lifetime)),
-            auto_ksk,
-            auto_zsk,
-            auto_csk,
-            auto_algorithm,
-            dnskey_inception_offset: parse_ods_ts(&kasp.signatures.inception_offset),
-            dnskey_signature_lifetime: parse_ods_ts(
-                kasp.signatures
-                    .validity
-                    .keyset
-                    .as_ref()
-                    .unwrap_or(&kasp.signatures.validity.default),
-            ),
-            dnskey_remain_time: parse_ods_ts(&kasp.signatures.refresh),
-            cds_inception_offset: parse_ods_ts(&kasp.signatures.inception_offset),
-            cds_signature_lifetime: parse_ods_ts(
-                kasp.signatures
-                    .validity
-                    .keyset
-                    .as_ref()
-                    .unwrap_or(&kasp.signatures.validity.default),
-            ),
-            cds_remain_time: parse_ods_ts(&kasp.signatures.refresh),
-            ds_algorithm: DsAlgorithm::default(),
-            default_ttl: Ttl::from_secs(parse_ods_ts(&kasp.keys.ttl)),
+        key_manager: KeyManagerSpec {
+            ksk: KskManagementSpec {
+                validity: match ksk {
+                    None => KeyValiditySpec::Forever,
+                    Some(k) => {
+                        KeyValiditySpec::Finite(TimeSpan::from_secs(parse_ods_ts(&k.lifetime)))
+                    }
+                },
+                rollover: auto_ksk,
+            },
+            zsk: ZskManagementSpec {
+                validity: match zsk {
+                    None => KeyValiditySpec::Forever,
+                    Some(k) => {
+                        KeyValiditySpec::Finite(TimeSpan::from_secs(parse_ods_ts(&k.lifetime)))
+                    }
+                },
+                rollover: auto_zsk,
+            },
+            csk: CskManagementSpec {
+                validity: match csk {
+                    None => KeyValiditySpec::Forever,
+                    Some(k) => {
+                        KeyValiditySpec::Finite(TimeSpan::from_secs(parse_ods_ts(&k.lifetime)))
+                    }
+                },
+                rollover: auto_csk,
+            },
+            algorithm: auto_algorithm,
+            ds_algorithm: DsAlgorithmSpec::default(),
             auto_remove: kasp.keys.purge.is_some(),
             auto_remove_delay: kasp
                 .keys
                 .purge
                 .as_ref()
-                .map(|ts| Duration::from_secs(parse_ods_ts(ts) as u64))
-                .unwrap_or_default(),
+                .map(|ts| TimeSpan::from_secs(parse_ods_ts(ts)))
+                .unwrap_or_else(|| TimeSpan::from_secs(0)),
+            records: KeyManagerRecordsSpec {
+                ttl: TimeSpan::from_secs(parse_ods_ts(&kasp.keys.ttl)),
+                dnskey: record_signing_spec.clone(),
+                cds: record_signing_spec,
+            },
+            generation: KeyManagerGenerationSpec {
+                hsm_server_id,
+                use_csk,
+                algorithm: policy_algorithm.unwrap(),
+            },
             publication_nameservers: Default::default(), // ODS doesn't have this concept
         },
-        signer: SignerPolicy {
+        signer: SignerSpec {
             serial_policy: match kasp.zone.soa.serial.serial {
-                SerialEnum::counter => SignerSerialPolicy::Counter,
-                SerialEnum::datecounter => SignerSerialPolicy::DateCounter,
-                SerialEnum::unixtime => SignerSerialPolicy::UnixTime,
-                SerialEnum::keep => SignerSerialPolicy::Keep,
+                SerialEnum::counter => SignerSerialPolicySpec::Counter,
+                SerialEnum::datecounter => SignerSerialPolicySpec::DateCounter,
+                SerialEnum::unixtime => SignerSerialPolicySpec::UnixTime,
+                SerialEnum::keep => SignerSerialPolicySpec::Keep,
             },
-            sig_inception_offset: parse_ods_ts(&kasp.signatures.inception_offset),
-            sig_validity_time: parse_ods_ts(&kasp.signatures.validity.default),
-            sig_remain_time: parse_ods_ts(&kasp.signatures.refresh),
+            signature_inception_offset: TimeSpan::from_secs(parse_ods_ts(
+                &kasp.signatures.inception_offset,
+            )),
+            signature_lifetime: TimeSpan::from_secs(parse_ods_ts(
+                &kasp.signatures.validity.default,
+            )),
+            signature_remain_time: TimeSpan::from_secs(parse_ods_ts(&kasp.signatures.refresh)),
             denial,
-            review: ReviewPolicy::default(), // ODS doesn't have this concept
-            signature_refresh_interval: 12 * 3600, // ODS doesn't have this concept, match the Cascade default
-            key_roll_time: 24 * 3600, // ODS doesn't have this concept, match the Cascade default
+            ..Default::default() // ODS doesn't have the other concepts in this struct
         },
-        server: ServerPolicy {
-            outbound: OutboundPolicy {
+        server: ServerSpec {
+            outbound: OutboundSpec {
                 provide_xfr_to,
                 send_notify_to,
+                ..Default::default()
             },
         },
     };
 
-    let policy = Policy {
-        latest: policy.into(),
-        mid_deletion: false,
-        zones: Default::default(),
-    };
-
-    Ok((
-        cascaded::policy::file::Spec::build(&policy),
-        key_length_upgraded,
-        extra_keys_ignored,
-    ))
+    Ok((policy, key_length_upgraded, extra_keys_ignored))
 }
 
-fn manual_or_automatic(manual_rollover: Option<()>) -> AutoConfig {
+fn manual_or_automatic(manual_rollover: Option<()>) -> RolloverSpec {
     if manual_rollover.is_some() {
-        AutoConfig {
-            start: false,
-            report: false,
-            expire: false,
-            done: false,
+        RolloverSpec {
+            auto_start: false,
+            auto_report: false,
+            auto_expire: false,
+            auto_done: false,
         }
     } else {
-        AutoConfig::default()
+        RolloverSpec::default()
     }
 }
 
@@ -1957,19 +1964,23 @@ fn atoi_with_rest<I: atoi::FromRadix10>(text: &[u8]) -> (&[u8], Option<I>) {
     }
 }
 
-fn alg_to_key_parameters(key: Key) -> cascaded::policy::KeyParameters {
+fn alg_to_key_parameters(key: Key) -> cascade_policy::v1::KeyGenerationParametersSpec {
     let algorithm = match key {
         Key::Ksk(k) => &k.algorithm,
         Key::Zsk(k) => &k.algorithm,
         Key::Csk(k) => &k.algorithm,
     };
     match algorithm.value.as_str() {
-        "8" => cascaded::policy::KeyParameters::RsaSha256(algorithm.length.parse().unwrap()),
-        "10" => cascaded::policy::KeyParameters::RsaSha512(algorithm.length.parse().unwrap()),
-        "13" => cascaded::policy::KeyParameters::EcdsaP256Sha256,
-        "14" => cascaded::policy::KeyParameters::EcdsaP256Sha256,
-        "15" => cascaded::policy::KeyParameters::Ed25519,
-        "16" => cascaded::policy::KeyParameters::Ed448,
+        "8" => cascade_policy::v1::KeyGenerationParametersSpec::RsaSha256(
+            algorithm.length.parse().unwrap(),
+        ),
+        "10" => cascade_policy::v1::KeyGenerationParametersSpec::RsaSha512(
+            algorithm.length.parse().unwrap(),
+        ),
+        "13" => cascade_policy::v1::KeyGenerationParametersSpec::EcdsaP256Sha256,
+        "14" => cascade_policy::v1::KeyGenerationParametersSpec::EcdsaP256Sha256,
+        "15" => cascade_policy::v1::KeyGenerationParametersSpec::Ed25519,
+        "16" => cascade_policy::v1::KeyGenerationParametersSpec::Ed448,
         alg => panic!("Unsupported algorithm number {alg}"),
     }
 }
