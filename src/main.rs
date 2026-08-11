@@ -1813,7 +1813,7 @@ fn create_cascade_policy(
                 .unwrap_or_else(|| TimeSpan::from_secs(0)),
             records: KeyManagerRecordsSpec {
                 ttl: TimeSpan::from_secs(parse_ods_ts(&kasp.keys.ttl)),
-                dnskey: record_signing_spec.clone(),
+                dnskey: record_signing_spec,
                 cds: record_signing_spec,
             },
             generation: KeyManagerGenerationSpec {
