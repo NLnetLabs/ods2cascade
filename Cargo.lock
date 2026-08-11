@@ -172,7 +172,7 @@ dependencies = [
 [[package]]
 name = "cascade-cfg"
 version = "0.1.0-beta6-dev"
-source = "git+https://github.com/NLnetLabs/cascade?branch=policy-file-subcrate#92ae3fec3cdda8e6830485d8e1d0d03c7ac09019"
+source = "git+https://github.com/NLnetLabs/cascade#3a755b195d2c25bfd481bd78dbc207721cbf38e3"
 dependencies = [
  "camino",
  "clap",
@@ -196,6 +196,7 @@ dependencies = [
 [[package]]
 name = "cascade-policy-file"
 version = "0.1.0-beta6-dev"
+source = "git+https://github.com/NLnetLabs/cascade#3a755b195d2c25bfd481bd78dbc207721cbf38e3"
 dependencies = [
  "camino",
  "domain",

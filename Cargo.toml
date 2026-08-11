@@ -13,9 +13,8 @@ rust-version = "1.88"
 [dependencies]
 anyhow            = "1.0.100"
 atoi              = "2.0.0"
-cascade-cfg       = { git = "https://github.com/NLnetLabs/cascade", branch = "policy-file-subcrate", package = "cascade-cfg" }
-#cascade-policy    = { git = "https://github.com/NLnetLabs/cascade", branch = "policy-file-subcrate", package = "cascade-policy-file" }
-cascade-policy    = { path = "../cascade-tmp/crates/policy-file", package = "cascade-policy-file" }
+cascade-cfg       = { git = "https://github.com/NLnetLabs/cascade", package = "cascade-cfg" }
+cascade-policy    = { git = "https://github.com/NLnetLabs/cascade", package = "cascade-policy-file" }
 domain            = { git = "https://github.com/NLnetLabs/domain", branch = "main" } # Use the same domain as cascade
 file-owner        = "0.1.2"
 fs-err            = "3.2.2"
