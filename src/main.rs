@@ -2196,6 +2196,30 @@ mod test {
         Ok(())
     }
 
+    // OpenDNSSEC 1.4 XML files are compatible with those of 2.x and so we
+    // cannot detect that we are running under an older version of OpenDNSSEC
+    // by parsing those files. We also cannot easily invoke an ODS CLI command
+    // to get the ODS version as that implies knowing which command to issue,
+    // may depend on permissions, and doesn't say that the ODS binary we query
+    // is the one being used by the user. We can however check the database as
+    // ODS 2.x introduced the databaseVersion table, if we don't find that we
+    // should abort.
+    #[tokio::test]
+    async fn single_policy_one_zone_ods_1_4_14() -> anyhow::Result<()> {
+        let res = run_test("1p-1z-ods-1.4.14").await;
+        let v = to_inner_err::<_, sqlx::Error>(res);
+        let sqlx::Error::Io(io_err) = v else {
+            panic!("Expected an IO error");
+        };
+        assert_eq!(io_err.kind(), std::io::ErrorKind::Other);
+        assert!(
+            io_err
+                .to_string()
+                .contains("missing field named `databaseVersion`")
+        );
+        Ok(())
+    }
+
     #[tokio::test]
     async fn cascade_hsm_bridge_should_use_same_user_and_group_as_ods_signer() -> anyhow::Result<()>
     {
